@@ -1,0 +1,356 @@
+// Prisma schema — Affinity Workspace
+// Phase 1: User, magic-link auth.
+// Phase 2: Client, Property, PropertyTenantHistory, Job, JobStatus enum.
+// Phase 3: WorkLog, JobMedia, CommunicationLog + new enums.
+// Phase 4: AuditLog, GeneratedDocument.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  PM
+  ADMIN
+  ACCOUNTS
+  OWNER
+}
+
+enum JobStatus {
+  TO_BE_CHECKED
+  CHECKED
+  QUOTED
+  AUTHORISED
+  COMPLETED
+  CANCELLED
+}
+
+enum MediaType {
+  DIAGNOSTIC
+  COMPLETION
+}
+
+enum CommunicationDirection {
+  TO_TENANT
+  TO_CLIENT
+}
+
+enum CommunicationMethod {
+  CALL
+  EMAIL
+  WHATSAPP
+}
+
+enum CommunicationOutcome {
+  CONFIRMED
+  NO_RESPONSE
+  SENT
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+enum DocumentType {
+  QUOTE
+  JOB_SHEET
+  COMPLETION_REPORT
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  name               String
+  role               Role
+  hourlyRate         Decimal?  @db.Decimal(10, 2)
+
+  passwordHash       String?
+
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  assignedJobs             Job[]              @relation("AssignedContractor")
+  contractorWorkLogs       WorkLog[]          @relation("ContractorWorkLogs")
+  loggedWorkLogs           WorkLog[]          @relation("LoggedWorkLogs")
+  uploadedMedia            JobMedia[]         @relation("UploadedMedia")
+  performedCommunications  CommunicationLog[] @relation("PerformedCommunications")
+  
+  auditLogsPerformed       AuditLog[]         @relation("AuditLogsPerformed")
+  documentsGenerated       GeneratedDocument[] @relation("DocumentsGenerated")
+
+  @@map("users")
+  @@index([email])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Client {
+  id        String    @id @default(uuid())
+  name      String
+  email     String?
+  phone     String?
+  address   String?
+  notes     String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  jobs       Job[]
+  properties Property[]
+
+  @@map("clients")
+  @@index([name])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Property
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Property {
+  id                 String    @id @default(uuid())
+  address            String
+  normalizedAddress  String
+  buildingGroupId    String?
+
+  currentClientId    String?
+  currentClient      Client?   @relation(fields: [currentClientId], references: [id])
+
+  currentTenantName  String?
+  currentTenantPhone String?
+  accessNotes        String?
+  keyLocation        String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  jobs          Job[]
+  tenantHistory PropertyTenantHistory[]
+
+  @@map("properties")
+  @@index([normalizedAddress])
+  @@index([currentClientId])
+  @@index([buildingGroupId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PropertyTenantHistory
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PropertyTenantHistory {
+  id         String   @id @default(uuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  tenantName  String
+  tenantPhone String?
+  movedIn     DateTime
+  movedOut    DateTime?
+  notes       String?
+
+  createdAt DateTime @default(now())
+
+  @@map("property_tenant_history")
+  @@index([propertyId, movedIn])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Job
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Job {
+  id       String @id @default(uuid())
+  sequence Int    @unique @default(autoincrement())
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  tenantSnapshotName  String?
+  tenantSnapshotPhone String?
+
+  status  JobStatus @default(TO_BE_CHECKED)
+  version Int       @default(0)
+
+  description     String?
+  diagnosticNotes String?
+  completionNotes String?
+  quotedValue     Decimal? @db.Decimal(10, 2)
+
+  assignedContractorId String?
+  assignedContractor   User?   @relation("AssignedContractor", fields: [assignedContractorId], references: [id])
+
+  scheduledDate DateTime?
+  completedAt   DateTime?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  workLogs          WorkLog[]
+  media             JobMedia[]
+  communicationLogs CommunicationLog[]
+  auditLogs         AuditLog[]
+  generatedDocuments GeneratedDocument[]
+
+  @@map("jobs")
+  @@index([status, createdAt])
+  @@index([propertyId, createdAt])
+  @@index([clientId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WorkLog
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WorkLog {
+  id           String   @id @default(uuid())
+
+  jobId        String
+  job          Job      @relation(fields: [jobId], references: [id])
+
+  contractorId String
+  contractor   User     @relation("ContractorWorkLogs", fields: [contractorId], references: [id])
+
+  loggedById   String
+  loggedBy     User     @relation("LoggedWorkLogs", fields: [loggedById], references: [id])
+
+  hoursWorked  Decimal  @db.Decimal(6, 2)
+  rateApplied  Decimal  @db.Decimal(10, 2)
+  materialCost Decimal  @default(0) @db.Decimal(10, 2)
+
+  workDate     DateTime @db.Date
+  notes        String?
+
+  deletedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("work_logs")
+  @@index([jobId])
+  @@index([contractorId])
+  @@index([workDate])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JobMedia
+// ─────────────────────────────────────────────────────────────────────────────
+
+model JobMedia {
+  id           String    @id @default(uuid())
+
+  jobId        String
+  job          Job       @relation(fields: [jobId], references: [id])
+
+  storageKey   String
+  mediaType    MediaType
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+
+  uploadedById String
+  uploadedBy   User      @relation("UploadedMedia", fields: [uploadedById], references: [id])
+
+  createdAt    DateTime  @default(now())
+
+  @@map("job_media")
+  @@index([jobId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CommunicationLog
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CommunicationLog {
+  id            String                 @id @default(uuid())
+
+  jobId         String
+  job           Job                    @relation(fields: [jobId], references: [id])
+
+  performedById String
+  performedBy   User                   @relation("PerformedCommunications", fields: [performedById], references: [id])
+
+  direction     CommunicationDirection
+  method        CommunicationMethod
+  outcome       CommunicationOutcome
+  notes         String?
+
+  loggedAt      DateTime               @default(now())
+  createdAt     DateTime               @default(now())
+
+  @@map("communication_logs")
+  @@index([jobId])
+  @@index([performedById])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AuditLog
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id            String      @id @default(uuid())
+
+  entityType    String      // 'Job', 'Property', 'Client', 'WorkLog'
+  entityId      String      // ID of the affected entity
+  action        AuditAction
+
+  performedById String
+  performedBy   User        @relation("AuditLogsPerformed", fields: [performedById], references: [id])
+
+  before        Json?       // Snapshot of entity before change
+  after         Json?       // Snapshot of entity after change
+
+  jobId         String?     // Optional association for job-level timeline
+  job           Job?        @relation(fields: [jobId], references: [id])
+
+  createdAt     DateTime    @default(now())
+
+  @@map("audit_logs")
+  @@index([entityType, entityId])
+  @@index([jobId])
+  @@index([performedById])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GeneratedDocument
+// ─────────────────────────────────────────────────────────────────────────────
+
+model GeneratedDocument {
+  id             String       @id @default(uuid())
+
+  jobId          String
+  job            Job          @relation(fields: [jobId], references: [id])
+
+  type           DocumentType
+  storageKey     String       // OCI Object Storage key
+
+  snapshotData   Json         // The raw data used to render this PDF
+
+  generatedById  String
+  generatedBy    User         @relation("DocumentsGenerated", fields: [generatedById], references: [id])
+
+  createdAt      DateTime     @default(now())
+
+  @@map("generated_documents")
+  @@index([jobId])
+}

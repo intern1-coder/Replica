@@ -1,0 +1,158 @@
+:root {
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  
+  /* Neutral Base UI Chrome */
+  --bg-color: #f8f9fa;
+  --surface-color: #ffffff;
+  --border-color: #dee2e6;
+  --text-primary: #212529;
+  --text-secondary: #6c757d;
+
+  /* Status Color Palette (Mapped explicitly to JobStatus) */
+  --status-to-be-checked-bg: #e9ecef;
+  --status-to-be-checked-text: #495057;
+
+  --status-checked-bg: #cce5ff;
+  --status-checked-text: #004085;
+
+  --status-quoted-bg: #fff3cd;
+  --status-quoted-text: #856404;
+
+  --status-authorised-bg: #d4edda;
+  --status-authorised-text: #155724;
+
+  --status-completed-bg: #d1ecf1;
+  --status-completed-text: #0c5460;
+
+  --status-cancelled-bg: #f8d7da;
+  --status-cancelled-text: #721c24;
+
+  /* Sizing / Density */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --table-cell-padding-y: 0.3rem;
+  --table-cell-padding-x: 0.5rem;
+  --border-radius: 4px;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family);
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Numeric alignment */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dense Table Base Styles */
+.dense-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--surface-color);
+  font-size: 0.9rem;
+}
+
+.dense-table th, .dense-table td {
+  padding: var(--table-cell-padding-y) var(--table-cell-padding-x);
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.dense-table th {
+  background-color: var(--bg-color);
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Typography Hierarchy */
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 0;
+  margin-bottom: var(--spacing-sm);
+  color: var(--text-primary);
+}
+
+a {
+  color: #0d6efd;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--border-radius);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-badge.to_be_checked { background-color: var(--status-to-be-checked-bg); color: var(--status-to-be-checked-text); }
+.status-badge.checked { background-color: var(--status-checked-bg); color: var(--status-checked-text); }
+.status-badge.quoted { background-color: var(--status-quoted-bg); color: var(--status-quoted-text); }
+.status-badge.authorised { background-color: var(--status-authorised-bg); color: var(--status-authorised-text); }
+.status-badge.completed { background-color: var(--status-completed-bg); color: var(--status-completed-text); }
+.status-badge.cancelled { background-color: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+
+/* Basic form elements */
+input, select, textarea {
+  font-family: inherit;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  font-size: 0.9rem;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #80bdff;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+button {
+  font-family: inherit;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease-in-out;
+}
+
+button.primary {
+  background-color: #0d6efd;
+  color: white;
+}
+
+button.primary:hover {
+  background-color: #0b5ed7;
+}
+
+button.secondary {
+  background-color: var(--bg-color);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+button.secondary:hover {
+  background-color: #e2e6ea;
+}

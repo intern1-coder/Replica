@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  test-db:
+    image: postgres:15-alpine
+    container_name: affinity_test_db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=affinity_test
+    ports:
+      - "5432:5432"
+    # Optional tmpfs for faster test executions
+    tmpfs:
+      - /var/lib/postgresql/data

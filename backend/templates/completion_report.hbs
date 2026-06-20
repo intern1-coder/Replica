@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Completion Report - {{jobNumber}}</title>
+  <style>
+    body { font-family: sans-serif; color: #333; line-height: 1.6; }
+    .header { border-bottom: 2px solid #7c3aed; padding-bottom: 10px; margin-bottom: 20px; }
+    .title { font-size: 24px; font-weight: bold; color: #6d28d9; }
+    .details { margin-bottom: 20px; }
+    .details th { text-align: left; padding-right: 20px; color: #6b7280; }
+    .section { margin-top: 30px; }
+    .section h3 { border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">Completion Report</div>
+  </div>
+  <table class="details">
+    <tr><th>Job Number:</th><td>{{jobNumber}}</td></tr>
+    <tr><th>Completed Date:</th><td>{{completedAt}}</td></tr>
+    <tr><th>Client:</th><td>{{clientName}}</td></tr>
+    <tr><th>Property:</th><td>{{propertyAddress}}</td></tr>
+  </table>
+  <div class="section">
+    <h3>Work Performed</h3>
+    <p>{{completionNotes}}</p>
+  </div>
+  <div class="section">
+    <h3>Sign Off</h3>
+    <p>Work completed to specification by Affinity Workspace.</p>
+  </div>
+</body>
+</html>
