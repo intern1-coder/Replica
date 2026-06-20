@@ -65,8 +65,8 @@ router.get(
           j."quotedValue"
             - COALESCE(SUM(w."hoursWorked" * w."rateApplied"), 0)
             - COALESCE(SUM(w."materialCost"), 0)                       AS "profit"
-        FROM   "Job" j
-        LEFT JOIN "WorkLog" w
+        FROM   "jobs" j
+        LEFT JOIN "work_logs" w
                ON w."jobId"      = j."id"
               AND w."deletedAt"  IS NULL
         WHERE  j."id"         = ${req.params['jobId']}

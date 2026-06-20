@@ -18,8 +18,24 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [hasPermission, setHasPermission] = useState(true);
 
   useEffect(() => {
+    // Check permission from token before fetching to prevent 403 console errors
+    const token = localStorage.getItem('affinity_token');
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.role !== 'ADMIN' && payload.role !== 'OWNER') {
+          setHasPermission(false);
+          setIsLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to parse token', e);
+      }
+    }
+    
     loadLogs();
   }, [jobId]);
 
@@ -41,6 +57,8 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
   const toggleExpand = (id: string) => {
     setExpandedLogId(expandedLogId === id ? null : id);
   };
+
+  if (!hasPermission) return null;
 
   return (
     <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-md)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)', marginTop: 'var(--spacing-md)' }}>
