@@ -133,6 +133,59 @@ router.post(
   }
 );
 
+// ── GET /api/tenants/:id/related ─────────────────────────────────────────────
+// Returns all historical properties and clients.
+
+router.get(
+  '/:id/related',
+  [param('id').isUUID()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const tenantId = req.params['id'];
+      
+      const tenant = await prisma.tenant.findFirst({
+        where: { id: tenantId, deletedAt: null },
+        include: {
+          lastProperty: { select: { id: true, address: true } },
+          lastClient: { select: { id: true, name: true, phone: true, email: true } },
+        }
+      });
+
+      if (!tenant) {
+        res.status(404).json({ error: 'Not Found', message: 'Tenant not found.' });
+        return;
+      }
+
+      const jobsWithEntities = await prisma.job.findMany({
+        where: { tenantId, deletedAt: null },
+        select: { 
+          property: { select: { id: true, address: true } },
+          client: { select: { id: true, name: true, phone: true, email: true } }
+        }
+      });
+
+      const propertyMap = new Map<string, any>();
+      const clientMap = new Map<string, any>();
+
+      if (tenant.lastProperty) propertyMap.set(tenant.lastProperty.id, tenant.lastProperty);
+      if (tenant.lastClient) clientMap.set(tenant.lastClient.id, tenant.lastClient);
+
+      jobsWithEntities.forEach(j => {
+        propertyMap.set(j.property.id, j.property);
+        clientMap.set(j.client.id, j.client);
+      });
+
+      res.json({
+        properties: Array.from(propertyMap.values()),
+        clients: Array.from(clientMap.values()),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ── PATCH /api/tenants/:id ─────────────────────────────────────────────────
 
 router.patch(

@@ -221,6 +221,62 @@ router.patch(
   }
 );
 
+// ── GET /api/properties/:id/related ──────────────────────────────────────────
+// Returns the current client, historical clients, and historical tenants.
+
+router.get(
+  '/:id/related',
+  [param('id').isUUID()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const propertyId = req.params['id'];
+      const property = await prisma.property.findFirst({
+        where: { id: propertyId, deletedAt: null },
+        include: { currentClient: { select: { id: true, name: true, phone: true, email: true } } }
+      });
+
+      if (!property) {
+        res.status(404).json({ error: 'Not Found', message: 'Property not found.' });
+        return;
+      }
+
+      // Historical Clients (from jobs)
+      const jobsWithClients = await prisma.job.findMany({
+        where: { propertyId, deletedAt: null },
+        select: { client: { select: { id: true, name: true, phone: true, email: true } } },
+        distinct: ['clientId']
+      });
+      const historicalClients = jobsWithClients.map(j => j.client).filter(c => c.id !== property.currentClientId);
+
+      // Historical Tenants (from jobs + current tenants)
+      const jobsWithTenants = await prisma.job.findMany({
+        where: { propertyId, deletedAt: null, tenantId: { not: null } },
+        select: { tenant: { select: { id: true, name: true, phone: true, email: true } } },
+        distinct: ['tenantId']
+      });
+      
+      const currentTenants = await prisma.tenant.findMany({
+        where: { lastPropertyId: propertyId, deletedAt: null },
+        select: { id: true, name: true, phone: true, email: true }
+      });
+
+      // Merge tenants
+      const tenantMap = new Map<string, any>();
+      jobsWithTenants.forEach(j => { if (j.tenant) tenantMap.set(j.tenant.id, j.tenant); });
+      currentTenants.forEach(t => tenantMap.set(t.id, t));
+
+      res.json({
+        currentClient: property.currentClient,
+        historicalClients,
+        tenants: Array.from(tenantMap.values())
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ── DELETE /api/properties/:id (soft delete) ────────────────────────────────────
 
 router.delete(

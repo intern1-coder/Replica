@@ -189,6 +189,50 @@ router.patch(
   }
 );
 
+// ── GET /api/clients/:id/related ─────────────────────────────────────────────
+// Returns all currently managed properties, and historical properties from jobs.
+
+router.get(
+  '/:id/related',
+  [param('id').isUUID()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const clientId = req.params['id'];
+      
+      const client = await prisma.client.findFirst({
+        where: { id: clientId, deletedAt: null },
+      });
+
+      if (!client) {
+        res.status(404).json({ error: 'Not Found', message: 'Client not found.' });
+        return;
+      }
+
+      const currentProperties = await prisma.property.findMany({
+        where: { currentClientId: clientId, deletedAt: null },
+        select: { id: true, address: true }
+      });
+
+      const jobsWithProperties = await prisma.job.findMany({
+        where: { clientId, deletedAt: null },
+        select: { property: { select: { id: true, address: true } } },
+        distinct: ['propertyId']
+      });
+
+      const propertyMap = new Map<string, any>();
+      jobsWithProperties.forEach(j => propertyMap.set(j.property.id, j.property));
+      currentProperties.forEach(p => propertyMap.set(p.id, p));
+
+      res.json({
+        properties: Array.from(propertyMap.values())
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ── DELETE /api/clients/:id (soft delete) ──────────────────────────────────────
 
 router.delete(
