@@ -30,14 +30,17 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     loadWorkLogs();
-    // Assuming /api/users?role=CONTRACTOR might not exist, but let's try to just fetch users and filter, or if there's a specific endpoint. 
-    // Actually /api/search?type=user might work, or maybe there's no endpoint for users.
-    // For now, let's assume we can hit /api/auth/me to see who we are, but we need contractors.
-    // Since Phase 3 might not have a generic GET /users, I'll just use a simple text input for contractor ID for now, 
-    // OR if we can't do that, we should probably fetch from jobs assignedContractorId?
-    // Let's just allow typing the Contractor UUID for the sake of getting it working, or if I know there's a GET /api/users...
-    // Wait! Let's check if there's an API for users. If not, I'll provide a text input for UUID.
+    loadContractors();
   }, [jobId]);
+
+  const loadContractors = async () => {
+    try {
+      const response = await apiFetch('/users?role=CONTRACTOR');
+      setContractors(response || []);
+    } catch (err) {
+      console.error('Failed to load contractors', err);
+    }
+  };
 
   const loadWorkLogs = async () => {
     try {
@@ -91,8 +94,13 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
           <input type="number" step="0.5" min="0.5" value={hoursWorked} onChange={e => setHoursWorked(Number(e.target.value))} required style={{ width: '100%' }} />
         </div>
         <div style={{ flex: '1 1 200px' }}>
-          <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 'var(--spacing-xs)' }}>Contractor UUID *</label>
-          <input type="text" value={contractorId} onChange={e => setContractorId(e.target.value)} required style={{ width: '100%' }} placeholder="Contractor ID" />
+          <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 'var(--spacing-xs)' }}>Contractor *</label>
+          <select value={contractorId} onChange={e => setContractorId(e.target.value)} required style={{ width: '100%' }}>
+            <option value="">Select a Contractor</option>
+            {contractors.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
         </div>
         <div style={{ flex: '1 1 200px' }}>
           <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 'var(--spacing-xs)' }}>Notes</label>

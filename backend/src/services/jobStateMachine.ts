@@ -82,6 +82,27 @@ export async function applyTransition({
     throw err;
   }
 
+  // 1.5 Load the user to check permissions
+  const user = await prisma.user.findUnique({
+    where: { id: performedById }
+  });
+
+  if (!user) {
+    const err = Object.assign(new Error('User not found.'), { status: 404, error: 'Not Found' });
+    throw err;
+  }
+
+  // Enforce Authorize Permission Check
+  if (toStatus === JobStatus.AUTHORISED) {
+    if (user.role !== 'ADMIN' && user.role !== 'OWNER' && !user.canAuthorizeJobs) {
+      const err = Object.assign(
+        new Error('You do not have permission to authorize jobs. Please ask an Admin or Approver to authorize this.'),
+        { status: 403, error: 'Forbidden' }
+      );
+      throw err;
+    }
+  }
+
   // 2. Validate transition
   if (!isTransitionAllowed(job.status, toStatus)) {
     const allowed = getAllowedTransitions(job.status);

@@ -26,7 +26,7 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
     if (token) {
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        if (payload.role !== 'ADMIN' && payload.role !== 'OWNER') {
+        if (payload.role !== 'ADMIN' && payload.role !== 'OWNER' && payload.role !== 'PM') {
           setHasPermission(false);
           setIsLoading(false);
           return;
@@ -58,6 +58,27 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
     setExpandedLogId(expandedLogId === id ? null : id);
   };
 
+  const generateHumanReadableDiff = (log: any) => {
+    if (log.action === 'CREATE') return `Created new ${log.entityType}.`;
+    if (log.action === 'DELETE') return `Deleted ${log.entityType}.`;
+    if (log.action === 'UPDATE') {
+      if (!log.before || !log.after) return `Updated ${log.entityType}.`;
+      const changes: string[] = [];
+      for (const key in log.after) {
+        if (log.before[key] !== log.after[key] && key !== 'updatedAt') {
+          let beforeVal = log.before[key];
+          let afterVal = log.after[key];
+          if (typeof beforeVal === 'object' && beforeVal !== null) beforeVal = beforeVal.name || beforeVal.id || JSON.stringify(beforeVal);
+          if (typeof afterVal === 'object' && afterVal !== null) afterVal = afterVal.name || afterVal.id || JSON.stringify(afterVal);
+          changes.push(`changed ${key} from '${beforeVal || 'empty'}' to '${afterVal || 'empty'}'`);
+        }
+      }
+      if (changes.length === 0) return `Updated ${log.entityType} (no significant changes).`;
+      return `Updated ${log.entityType}: ${changes.join(', ')}.`;
+    }
+    return `${log.action} performed on ${log.entityType}.`;
+  };
+
   if (!hasPermission) return null;
 
   return (
@@ -79,9 +100,12 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
                   <span style={{ color: 'var(--text-secondary)', marginLeft: 'var(--spacing-sm)' }}>
                     by {log.performedBy?.name || 'Unknown'} at {new Date(log.createdAt).toLocaleString()}
                   </span>
+                  <div style={{ marginTop: 'var(--spacing-xs)', color: 'var(--text-primary)', fontStyle: 'italic' }}>
+                    {generateHumanReadableDiff(log)}
+                  </div>
                 </div>
                 <button onClick={() => toggleExpand(log.id)} className="secondary" style={{ padding: '0.1rem 0.4rem', fontSize: '0.75rem' }}>
-                  {expandedLogId === log.id ? 'Hide Diffs' : 'View Diffs'}
+                  {expandedLogId === log.id ? 'Hide Raw JSON' : 'View Raw JSON'}
                 </button>
               </div>
               

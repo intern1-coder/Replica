@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import multer from 'multer';
 import sharp from 'sharp';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
+import fs from 'fs/promises';
+import path from 'path';
 import s3 from '../lib/s3';
 import config from '../config';
 
@@ -95,15 +97,21 @@ export async function uploadMedia(
   const ext = mimeType === 'image/jpeg' ? 'jpg' : (file.originalname.split('.').pop() ?? 'bin');
   const storageKey = `jobs/${jobId}/media/${crypto.randomUUID()}.${ext}`;
 
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: config.storage.bucket,
-      Key: storageKey,
-      Body: buffer,
-      ContentType: mimeType,
-      ContentLength: sizeBytes,
-    })
-  );
+  if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId === '') {
+    const localPath = path.join(__dirname, '../../uploads', storageKey);
+    await fs.mkdir(path.dirname(localPath), { recursive: true });
+    await fs.writeFile(localPath, buffer);
+  } else {
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: config.storage.bucket,
+        Key: storageKey,
+        Body: buffer,
+        ContentType: mimeType,
+        ContentLength: sizeBytes,
+      })
+    );
+  }
 
   return {
     storageKey,

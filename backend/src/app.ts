@@ -21,6 +21,7 @@ import pnlRouter from './routes/pnl';
 import auditLogsRouter from './routes/auditLogs';
 import documentsRouter from './routes/documents';
 import dashboardRouter from './routes/dashboard';
+import usersRouter from './routes/users';
 
 const app = express();
 
@@ -64,6 +65,7 @@ app.use('/api/pnl', pnlRouter);
 app.use('/api/audit-logs', auditLogsRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/users', usersRouter);
 
 // ── 404 handler — must be after all routes ─────────────────────────────────────
 app.use((req, res) => {

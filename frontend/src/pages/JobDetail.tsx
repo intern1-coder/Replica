@@ -164,6 +164,9 @@ export function JobDetail() {
         )}
       </div>
 
+      {/* Job Timeline (Audit Logs) */}
+      <JobAuditLogs jobId={job.id} />
+
       {/* Detail Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 'var(--spacing-md)' }}>
         <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-md)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)' }}>
@@ -190,7 +193,6 @@ export function JobDetail() {
       <JobCommunications jobId={job.id} />
       <JobMediaUpload jobId={job.id} />
       <JobDocuments jobId={job.id} />
-      <JobAuditLogs jobId={job.id} />
 
     </div>
   );

@@ -3,6 +3,8 @@ import { param, body } from 'express-validator';
 import { DocumentType, Role } from '@prisma/client';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 import prisma from '../lib/prisma';
 import s3 from '../lib/s3';
 import config from '../config';
@@ -21,6 +23,14 @@ router.use(requireRole(Role.PM, Role.ADMIN));
 async function uploadPdfToStorage(jobId: string, pdfBuffer: Buffer, docType: DocumentType): Promise<string> {
   const storageKey = `jobs/${jobId}/documents/${docType.toLowerCase()}_${crypto.randomUUID()}.pdf`;
   
+  // Fallback to local storage if AWS credentials are not configured
+  if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId === '') {
+    const localPath = path.join(__dirname, '../../uploads', storageKey);
+    await fs.mkdir(path.dirname(localPath), { recursive: true });
+    await fs.writeFile(localPath, pdfBuffer);
+    return storageKey;
+  }
+
   await s3.send(
     new PutObjectCommand({
       Bucket: config.storage.bucket,

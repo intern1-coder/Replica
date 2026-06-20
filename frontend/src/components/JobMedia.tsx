@@ -40,7 +40,7 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
     for (const file of acceptedFiles) {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('type', uploadType);
+      formData.append('mediaType', uploadType);
       formData.append('jobId', String(jobId));
 
       try {

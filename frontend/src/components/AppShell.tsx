@@ -1,10 +1,21 @@
-
+import { useState, useEffect } from 'react';
 import { Outlet, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogOut, LayoutDashboard, Users, Building2, ClipboardList, Calendar } from 'lucide-react';
 
 export function AppShell() {
   const { isAuthenticated, logout } = useAuth();
+  const [userRole, setUserRole] = useState<string>('');
+
+  useEffect(() => {
+    const token = localStorage.getItem('affinity_token');
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        setUserRole(payload.role);
+      } catch (e) {}
+    }
+  }, []);
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
@@ -16,6 +27,11 @@ export function AppShell() {
       <nav style={{ width: '240px', backgroundColor: '#343a40', color: 'white', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 'var(--spacing-md)', fontSize: '1.2rem', fontWeight: 600, borderBottom: '1px solid #495057' }}>
           Affinity
+          {userRole && (
+            <div style={{ fontSize: '0.75rem', fontWeight: 400, color: '#adb5bd', marginTop: '0.25rem', textTransform: 'capitalize' }}>
+              Logged in as: {userRole.toLowerCase()}
+            </div>
+          )}
         </div>
         
         <div style={{ flex: 1, padding: 'var(--spacing-md) 0', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
