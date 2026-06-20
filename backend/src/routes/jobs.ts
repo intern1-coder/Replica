@@ -22,6 +22,8 @@ const JOB_LIST_SELECT = {
   property: { select: { id: true, address: true } },
   clientId: true,
   client: { select: { id: true, name: true } },
+  tenantId: true,
+  tenant: { select: { id: true, name: true, phone: true } },
   tenantSnapshotName: true,
   tenantSnapshotPhone: true,
   quotedValue: true,
@@ -139,6 +141,9 @@ router.post(
       .withMessage('quotedValue must be a decimal number.'),
     body('assignedContractorId').optional({ nullable: true }).isUUID(),
     body('scheduledDate').optional({ nullable: true }).isISO8601().toDate(),
+    body('tenantId').optional({ nullable: true }).isUUID(),
+    body('newTenantName').optional({ nullable: true }).isString().trim(),
+    body('newTenantPhone').optional({ nullable: true }).isString().trim(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -151,12 +156,15 @@ router.post(
           quotedValue?: string | null;
           assignedContractorId?: string | null;
           scheduledDate?: Date | null;
+          tenantId?: string | null;
+          newTenantName?: string | null;
+          newTenantPhone?: string | null;
         };
 
       // Load property to snapshot current tenant data
       const property = await prisma.property.findFirst({
         where: { id: propertyId, deletedAt: null },
-        select: { id: true, currentTenantName: true, currentTenantPhone: true },
+        select: { id: true },
       });
 
       if (!property) {
@@ -175,13 +183,38 @@ router.post(
         return;
       }
 
+      let finalTenantId = req.body.tenantId as string | undefined;
+      let finalTenantName: string | null = null;
+      let finalTenantPhone: string | null = null;
+
+      if (req.body.newTenantName) {
+        const t = await prisma.tenant.create({
+           data: { 
+             name: req.body.newTenantName, 
+             phone: req.body.newTenantPhone, 
+             lastPropertyId: propertyId, 
+             lastClientId: clientId 
+           }
+        });
+        finalTenantId = t.id;
+        finalTenantName = t.name;
+        finalTenantPhone = t.phone;
+      } else if (finalTenantId) {
+        const t = await prisma.tenant.update({
+           where: { id: finalTenantId },
+           data: { lastPropertyId: propertyId, lastClientId: clientId }
+        });
+        finalTenantName = t.name;
+        finalTenantPhone = t.phone;
+      }
+
       const job = await prisma.job.create({
         data: {
           propertyId,
           clientId,
-          // Freeze tenant snapshot at creation time — never updated later (Rules.md)
-          tenantSnapshotName: property.currentTenantName,
-          tenantSnapshotPhone: property.currentTenantPhone,
+          tenantId: finalTenantId,
+          tenantSnapshotName: finalTenantName,
+          tenantSnapshotPhone: finalTenantPhone,
           description,
           quotedValue: quotedValue ? quotedValue : undefined,
           assignedContractorId,
@@ -190,6 +223,7 @@ router.post(
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
+          tenant: { select: { id: true, name: true, phone: true } },
           assignedContractor: { select: { id: true, name: true, role: true } },
         },
       });

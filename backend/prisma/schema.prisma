@@ -115,6 +115,7 @@ model Client {
 
   jobs       Job[]
   properties Property[]
+  tenants    Tenant[]
 
   @@map("clients")
   @@index([name])
@@ -144,11 +145,39 @@ model Property {
 
   jobs          Job[]
   tenantHistory PropertyTenantHistory[]
+  tenants       Tenant[]
 
   @@map("properties")
   @@index([normalizedAddress])
   @@index([currentClientId])
   @@index([buildingGroupId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id        String    @id @default(uuid())
+  name      String
+  email     String?
+  phone     String?
+  notes     String?
+
+  lastPropertyId String?
+  lastProperty   Property? @relation(fields: [lastPropertyId], references: [id])
+  
+  lastClientId   String?
+  lastClient     Client?   @relation(fields: [lastClientId], references: [id])
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  jobs Job[]
+
+  @@map("tenants")
+  @@index([name])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,6 +214,9 @@ model Job {
 
   clientId String
   client   Client @relation(fields: [clientId], references: [id])
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   tenantSnapshotName  String?
   tenantSnapshotPhone String?

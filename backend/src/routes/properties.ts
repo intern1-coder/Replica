@@ -43,15 +43,13 @@ router.get(
           buildingGroupId: true,
           currentClientId: true,
           currentClient: { select: { id: true, name: true } },
-          currentTenantName: true,
-          currentTenantPhone: true,
           keyLocation: true,
           _count: { select: { jobs: { where: { deletedAt: null } } } },
         },
       });
 
       const filtered = q
-        ? fuzzySearch(allProperties, q, ['address', 'normalizedAddress', 'currentTenantName'])
+        ? fuzzySearch(allProperties, q, ['address', 'normalizedAddress'])
         : allProperties;
 
       const pageData = filtered.slice(skip, skip + limit);
@@ -101,8 +99,6 @@ router.post(
       .withMessage('address is required.'),
     body('buildingGroupId').optional({ nullable: true }).isString().trim(),
     body('currentClientId').optional({ nullable: true }).isUUID(),
-    body('currentTenantName').optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
-    body('currentTenantPhone').optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
     body('accessNotes').optional({ nullable: true }).isString().trim(),
     body('keyLocation').optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
   ],
@@ -113,8 +109,6 @@ router.post(
         address,
         buildingGroupId,
         currentClientId,
-        currentTenantName,
-        currentTenantPhone,
         accessNotes,
         keyLocation,
       } = req.body as {
@@ -133,8 +127,6 @@ router.post(
           normalizedAddress: normalizeAddress(address), // pre-computed for search
           buildingGroupId,
           currentClientId,
-          currentTenantName,
-          currentTenantPhone,
           accessNotes,
           keyLocation,
         },
@@ -168,8 +160,6 @@ router.patch(
     body('address').optional().isString().trim().notEmpty().isLength({ max: 500 }),
     body('buildingGroupId').optional({ nullable: true }).isString().trim(),
     body('currentClientId').optional({ nullable: true }).isUUID(),
-    body('currentTenantName').optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
-    body('currentTenantPhone').optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
     body('accessNotes').optional({ nullable: true }).isString().trim(),
     body('keyLocation').optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
   ],
@@ -189,16 +179,12 @@ router.patch(
         address,
         buildingGroupId,
         currentClientId,
-        currentTenantName,
-        currentTenantPhone,
         accessNotes,
         keyLocation,
       } = req.body as {
         address?: string;
         buildingGroupId?: string | null;
         currentClientId?: string | null;
-        currentTenantName?: string | null;
-        currentTenantPhone?: string | null;
         accessNotes?: string | null;
         keyLocation?: string | null;
       };
@@ -211,8 +197,6 @@ router.patch(
           ...(address !== undefined ? { normalizedAddress: normalizeAddress(address) } : {}),
           buildingGroupId,
           currentClientId,
-          currentTenantName,
-          currentTenantPhone,
           accessNotes,
           keyLocation,
         },
