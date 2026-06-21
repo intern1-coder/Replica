@@ -2,33 +2,97 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Quote - {{jobNumber}}</title>
+  <title>Diagnostic & Quote Report - {{jobNumber}}</title>
   <style>
-    body { font-family: sans-serif; color: #333; line-height: 1.6; }
-    .header { border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 20px; }
-    .title { font-size: 24px; font-weight: bold; color: #1e40af; }
-    .details { margin-bottom: 20px; }
-    .details th { text-align: left; padding-right: 20px; color: #6b7280; }
-    .content { margin-top: 30px; }
-    .price { font-size: 20px; font-weight: bold; margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; }
+    .page { padding: 0; }
+    .company-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 15px; border-bottom: 3px solid #1e40af; margin-bottom: 20px; }
+    .company-name { font-size: 22px; font-weight: 700; color: #1e40af; }
+    .company-tagline { font-size: 10px; color: #6b7280; }
+    .report-title { background: #1e40af; color: white; padding: 10px 15px; font-size: 16px; font-weight: 700; text-align: center; margin-bottom: 20px; border-radius: 4px; }
+    .details-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    .details-table th, .details-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
+    .details-table th { background: #f3f4f6; color: #374151; font-weight: 600; width: 30%; }
+    .section-title { font-size: 13px; font-weight: 700; color: #374151; padding: 8px 0; border-bottom: 2px solid #e5e7eb; margin: 20px 0 10px 0; }
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+    .items-table th, .items-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
+    .items-table th { background: #f3f4f6; color: #374151; font-weight: 600; }
+    .items-table td.number { text-align: center; width: 40px; }
+    .items-table td.price { text-align: right; width: 100px; }
+    .items-table td.status { text-align: center; width: 100px; }
+    .totals-table { width: 100%; border-collapse: collapse; margin-top: 0; }
+    .totals-table td { border: 1px solid #d1d5db; padding: 8px 12px; }
+    .totals-table .label { text-align: right; font-weight: 600; background: #f9fafb; }
+    .totals-table .value { text-align: right; width: 120px; }
+    .totals-table .grand-total td { font-weight: 700; font-size: 13px; background: #eff6ff; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="title">Quotation</div>
-  </div>
-  <table class="details">
-    <tr><th>Job Number:</th><td>{{jobNumber}}</td></tr>
-    <tr><th>Date:</th><td>{{date}}</td></tr>
-    <tr><th>Client:</th><td>{{clientName}}</td></tr>
-    <tr><th>Property:</th><td>{{propertyAddress}}</td></tr>
-  </table>
-  <div class="content">
-    <h3>Description of Work</h3>
-    <p>{{description}}</p>
-  </div>
-  <div class="price">
-    Total Quoted Value: £{{quotedValue}}
+  <div class="page">
+    <div class="company-header">
+      <div>
+        <div class="company-name">Affinity Property Services</div>
+        <div class="company-tagline">Professional Property Maintenance & Management</div>
+      </div>
+      <div style="text-align: right; font-size: 10px; color: #6b7280;">
+        <div>Job #{{jobNumber}}</div>
+        <div>{{date}}</div>
+      </div>
+    </div>
+
+    <div class="report-title">Diagnostic & Quote Report</div>
+
+    <table class="details-table">
+      <tr><th>Client:</th><td>{{clientName}}</td></tr>
+      <tr><th>Address:</th><td>{{propertyAddress}}</td></tr>
+      <tr><th>Date Logged:</th><td>{{date}}</td></tr>
+      <tr><th>Job Number:</th><td>{{jobNumber}}</td></tr>
+    </table>
+
+    <div class="section-title">Reported Issue</div>
+    <p style="padding: 8px 0;">{{description}}</p>
+
+    {{#if lineItems.length}}
+    <div class="section-title">Quote Line Items</div>
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th style="width: 40px; text-align: center;">#</th>
+          <th>Description</th>
+          <th style="text-align: right; width: 100px;">Quote Price</th>
+          <th style="text-align: center; width: 100px;">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each lineItems}}
+        <tr>
+          <td class="number">{{inc @index}}</td>
+          <td>{{description}}</td>
+          <td class="price">£{{price}}</td>
+          <td class="status">{{status}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+
+    <table class="totals-table">
+      <tr>
+        <td class="label">TOTAL NET Price Including Labour and Materials:</td>
+        <td class="value">£{{quotedValue}}</td>
+      </tr>
+      <tr>
+        <td class="label">VAT (20%):</td>
+        <td class="value">£{{vatAmount}}</td>
+      </tr>
+      <tr class="grand-total">
+        <td class="label">TOTAL inc. VAT:</td>
+        <td class="value">£{{totalWithVat}}</td>
+      </tr>
+    </table>
+    {{/if}}
+
+    {{> _image_grid title="Diagnostic Photos" images=diagnosticImages}}
   </div>
 </body>
 </html>

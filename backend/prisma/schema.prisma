@@ -22,6 +22,7 @@ enum Role {
   ADMIN
   ACCOUNTS
   OWNER
+  CONTRACTOR
 }
 
 enum JobStatus {
@@ -41,18 +42,21 @@ enum MediaType {
 enum CommunicationDirection {
   TO_TENANT
   TO_CLIENT
+  INTERNAL
 }
 
 enum CommunicationMethod {
   CALL
   EMAIL
   WHATSAPP
+  SYSTEM_NOTE
 }
 
 enum CommunicationOutcome {
   CONFIRMED
   NO_RESPONSE
   SENT
+  LOGGED
 }
 
 enum AuditAction {
@@ -80,11 +84,13 @@ model User {
 
   passwordHash       String?
 
+  canAuthorizeJobs   Boolean   @default(false)
+
   deletedAt          DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  assignedJobs             Job[]              @relation("AssignedContractor")
+  assignedJobs             Job[]              @relation("JobContractors")
   contractorWorkLogs       WorkLog[]          @relation("ContractorWorkLogs")
   loggedWorkLogs           WorkLog[]          @relation("LoggedWorkLogs")
   uploadedMedia            JobMedia[]         @relation("UploadedMedia")
@@ -131,11 +137,13 @@ model Property {
   normalizedAddress  String
   buildingGroupId    String?
 
+  parentId           String?
+  parent             Property? @relation("PropertySubUnits", fields: [parentId], references: [id])
+  subUnits           Property[] @relation("PropertySubUnits")
+
   currentClientId    String?
   currentClient      Client?   @relation(fields: [currentClientId], references: [id])
 
-  currentTenantName  String?
-  currentTenantPhone String?
   accessNotes        String?
   keyLocation        String?
 
@@ -145,11 +153,13 @@ model Property {
 
   jobs          Job[]
   tenantHistory PropertyTenantHistory[]
-  tenants       Tenant[]
+  tenants       Tenant[] @relation("PropertyTenants")
+  lastTenants   Tenant[] @relation("PropertyLastTenants")
 
   @@map("properties")
   @@index([normalizedAddress])
   @@index([currentClientId])
+  @@index([parentId])
   @@index([buildingGroupId])
 }
 
@@ -164,8 +174,11 @@ model Tenant {
   phone     String?
   notes     String?
 
+  propertyId String?
+  property   Property? @relation("PropertyTenants", fields: [propertyId], references: [id])
+
   lastPropertyId String?
-  lastProperty   Property? @relation(fields: [lastPropertyId], references: [id])
+  lastProperty   Property? @relation("PropertyLastTenants", fields: [lastPropertyId], references: [id])
   
   lastClientId   String?
   lastClient     Client?   @relation(fields: [lastClientId], references: [id])
@@ -227,10 +240,10 @@ model Job {
   description     String?
   diagnosticNotes String?
   completionNotes String?
+  materials       String?
   quotedValue     Decimal? @db.Decimal(10, 2)
 
-  assignedContractorId String?
-  assignedContractor   User?   @relation("AssignedContractor", fields: [assignedContractorId], references: [id])
+  assignedContractors User[]   @relation("JobContractors")
 
   scheduledDate DateTime?
   completedAt   DateTime?
@@ -240,6 +253,7 @@ model Job {
   updatedAt DateTime  @updatedAt
 
   workLogs          WorkLog[]
+  quoteLineItems    JobQuoteLineItem[]
   media             JobMedia[]
   communicationLogs CommunicationLog[]
   auditLogs         AuditLog[]
@@ -384,5 +398,25 @@ model GeneratedDocument {
   createdAt      DateTime     @default(now())
 
   @@map("generated_documents")
+  @@index([jobId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JobQuoteLineItem
+// ─────────────────────────────────────────────────────────────────────────────
+
+model JobQuoteLineItem {
+  id          String   @id @default(uuid())
+  jobId       String
+  job         Job      @relation(fields: [jobId], references: [id])
+  description String
+  price       Decimal  @db.Decimal(10, 2)
+  status      String?  @default("COMPLETED")
+
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("job_quote_line_items")
   @@index([jobId])
 }

@@ -72,7 +72,7 @@ router.get(
         include: {
           properties: {
             where: { deletedAt: null },
-            select: { id: true, address: true, currentTenantName: true },
+            select: { id: true, address: true, tenants: { select: { name: true } } },
             orderBy: { address: 'asc' },
           },
           _count: { select: { jobs: { where: { deletedAt: null } } } },

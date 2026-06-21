@@ -42,7 +42,11 @@ router.get(
           normalizedAddress: true,
           buildingGroupId: true,
           currentClientId: true,
-          currentClient: { select: { id: true, name: true } },
+          currentClient: { select: { id: true, name: true, phone: true, email: true } },
+          parentId: true,
+          parent: { select: { id: true, address: true } },
+          subUnits: { select: { id: true, address: true } },
+          lastTenants: { select: { id: true, name: true, phone: true, email: true } },
           keyLocation: true,
           _count: { select: { jobs: { where: { deletedAt: null } } } },
         },
@@ -72,6 +76,9 @@ router.get(
         where: { id: req.params['id'], deletedAt: null },
         include: {
           currentClient: { select: { id: true, name: true, email: true, phone: true } },
+          parent: { select: { id: true, address: true } },
+          subUnits: { select: { id: true, address: true } },
+          tenants: { select: { id: true, name: true, phone: true, email: true } },
           tenantHistory: { orderBy: { movedIn: 'desc' } },
           _count: { select: { jobs: { where: { deletedAt: null } } } },
         },
@@ -98,6 +105,7 @@ router.post(
     body('address').isString().trim().notEmpty().isLength({ max: 500 })
       .withMessage('address is required.'),
     body('buildingGroupId').optional({ nullable: true }).isString().trim(),
+    body('parentId').optional({ nullable: true }).isUUID(),
     body('currentClientId').optional({ nullable: true }).isUUID(),
     body('accessNotes').optional({ nullable: true }).isString().trim(),
     body('keyLocation').optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
@@ -108,15 +116,15 @@ router.post(
       const {
         address,
         buildingGroupId,
+        parentId,
         currentClientId,
         accessNotes,
         keyLocation,
       } = req.body as {
         address: string;
         buildingGroupId?: string | null;
+        parentId?: string | null;
         currentClientId?: string | null;
-        currentTenantName?: string | null;
-        currentTenantPhone?: string | null;
         accessNotes?: string | null;
         keyLocation?: string | null;
       };
@@ -126,12 +134,15 @@ router.post(
           address,
           normalizedAddress: normalizeAddress(address), // pre-computed for search
           buildingGroupId,
+          parentId,
           currentClientId,
           accessNotes,
           keyLocation,
         },
         include: {
           currentClient: { select: { id: true, name: true } },
+          parent: { select: { id: true, address: true } },
+          tenants: { select: { id: true, name: true } }
         },
       });
 
@@ -159,6 +170,7 @@ router.patch(
     param('id').isUUID(),
     body('address').optional().isString().trim().notEmpty().isLength({ max: 500 }),
     body('buildingGroupId').optional({ nullable: true }).isString().trim(),
+    body('parentId').optional({ nullable: true }).isUUID(),
     body('currentClientId').optional({ nullable: true }).isUUID(),
     body('accessNotes').optional({ nullable: true }).isString().trim(),
     body('keyLocation').optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
@@ -178,12 +190,14 @@ router.patch(
       const {
         address,
         buildingGroupId,
+        parentId,
         currentClientId,
         accessNotes,
         keyLocation,
       } = req.body as {
         address?: string;
         buildingGroupId?: string | null;
+        parentId?: string | null;
         currentClientId?: string | null;
         accessNotes?: string | null;
         keyLocation?: string | null;
@@ -196,12 +210,15 @@ router.patch(
           // Re-normalise if address changed
           ...(address !== undefined ? { normalizedAddress: normalizeAddress(address) } : {}),
           buildingGroupId,
+          parentId,
           currentClientId,
           accessNotes,
           keyLocation,
         },
         include: {
           currentClient: { select: { id: true, name: true } },
+          parent: { select: { id: true, address: true } },
+          tenants: { select: { id: true, name: true } }
         },
       });
 

@@ -9,6 +9,7 @@ export interface JwtPayload {
   userId: string;
   email: string;
   role: string;
+  canAuthorizeJobs: boolean;
 }
 
 // ── Password helpers ───────────────────────────────────────────────────────────
@@ -27,12 +28,17 @@ export async function comparePassword(password: string, hash: string): Promise<b
  * Issues a signed JWT for a verified user.
  * Payload: userId, email, role.
  */
-export function generateJWT(user: Pick<User, 'id' | 'email' | 'role'>): string {
-  return jwt.sign(
-    { userId: user.id, email: user.email, role: user.role } satisfies JwtPayload,
-    config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn as jwt.SignOptions['expiresIn'] }
-  );
+export function generateJWT(user: Pick<User, 'id' | 'email' | 'role' | 'canAuthorizeJobs'>): string {
+  const payload: JwtPayload = {
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    canAuthorizeJobs: user.canAuthorizeJobs,
+  };
+
+  return jwt.sign(payload, config.jwt.secret, {
+    expiresIn: config.jwt.expiresIn as jwt.SignOptions['expiresIn'],
+  });
 }
 
 /**

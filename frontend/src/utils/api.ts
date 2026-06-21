@@ -20,7 +20,7 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
     let errorMessage = 'An error occurred';
     try {
       const errorData = await response.json();
-      errorMessage = errorData.error || errorData.message || errorMessage;
+      errorMessage = errorData.message || errorData.error || errorMessage;
     } catch {
       // Not JSON
       errorMessage = await response.text();

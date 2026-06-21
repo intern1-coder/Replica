@@ -10,6 +10,7 @@ import { JobList } from './pages/JobList';
 import { JobDetail } from './pages/JobDetail';
 import { JobCreate } from './pages/JobCreate';
 import { LogisticsGrid } from './pages/LogisticsGrid';
+import { UsersList } from './pages/UsersList';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
             <Route path="/jobs/new" element={<JobCreate />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/logistics" element={<LogisticsGrid />} />
+            <Route path="/team" element={<UsersList />} />
           </Route>
           
           <Route path="*" element={<Navigate to="/" replace />} />

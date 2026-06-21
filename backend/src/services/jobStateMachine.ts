@@ -162,7 +162,7 @@ export async function applyTransition({
     include: {
       property:          { select: { id: true, address: true } },
       client:            { select: { id: true, name: true } },
-      assignedContractor: { select: { id: true, name: true, role: true } },
+      assignedContractors: { select: { id: true, name: true, role: true } },
     },
   });
 }

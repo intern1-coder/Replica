@@ -22,6 +22,7 @@ import auditLogsRouter from './routes/auditLogs';
 import documentsRouter from './routes/documents';
 import dashboardRouter from './routes/dashboard';
 import usersRouter from './routes/users';
+import lineItemsRouter from './routes/lineItems';
 
 const app = express();
 
@@ -66,6 +67,16 @@ app.use('/api/audit-logs', auditLogsRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/jobs/:jobId/line-items', lineItemsRouter);
+
+// ── Local Uploads Serving ──────────────────────────────────────────────────────
+import path from 'path';
+app.use('/uploads', (req, res, next) => {
+  if (req.query.download === 'true') {
+    res.setHeader('Content-Disposition', 'attachment');
+  }
+  next();
+}, express.static(path.join(__dirname, '../uploads')));
 
 // ── 404 handler — must be after all routes ─────────────────────────────────────
 app.use((req, res) => {

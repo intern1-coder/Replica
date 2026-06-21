@@ -4,36 +4,83 @@
   <meta charset="UTF-8">
   <title>Job Sheet - {{jobNumber}}</title>
   <style>
-    body { font-family: sans-serif; color: #333; line-height: 1.6; }
-    .header { border-bottom: 2px solid #059669; padding-bottom: 10px; margin-bottom: 20px; }
-    .title { font-size: 24px; font-weight: bold; color: #047857; }
-    .details { margin-bottom: 20px; width: 100%; border-collapse: collapse; }
-    .details th, .details td { text-align: left; padding: 8px; border: 1px solid #e5e7eb; }
-    .details th { background: #f9fafb; color: #6b7280; width: 30%; }
-    .section { margin-top: 30px; }
-    .section h3 { border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; }
+    .page { padding: 0; }
+    .company-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 15px; border-bottom: 3px solid #047857; margin-bottom: 20px; }
+    .company-name { font-size: 22px; font-weight: 700; color: #047857; }
+    .company-tagline { font-size: 10px; color: #6b7280; }
+    .report-title { background: #047857; color: white; padding: 10px 15px; font-size: 16px; font-weight: 700; text-align: center; margin-bottom: 20px; border-radius: 4px; }
+    .details-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    .details-table th, .details-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
+    .details-table th { background: #f3f4f6; color: #374151; font-weight: 600; width: 30%; }
+    .section-title { font-size: 13px; font-weight: 700; color: #374151; padding: 8px 0; border-bottom: 2px solid #e5e7eb; margin: 20px 0 10px 0; }
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+    .items-table th, .items-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
+    .items-table th { background: #f3f4f6; color: #374151; font-weight: 600; }
+    .items-table td.number { text-align: center; width: 40px; }
+    .estimate-box { border: 2px solid #047857; padding: 12px; margin-top: 15px; border-radius: 4px; }
+    .estimate-box .label { font-weight: 700; color: #047857; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="title">Job Sheet</div>
-  </div>
-  <table class="details">
-    <tr><th>Job Number</th><td>{{jobNumber}}</td></tr>
-    <tr><th>Scheduled Date</th><td>{{scheduledDate}}</td></tr>
-    <tr><th>Assigned Contractor</th><td>{{contractorName}}</td></tr>
-    <tr><th>Property Address</th><td>{{propertyAddress}}</td></tr>
-    <tr><th>Tenant Name</th><td>{{tenantName}}</td></tr>
-    <tr><th>Tenant Phone</th><td>{{tenantPhone}}</td></tr>
-    <tr><th>Key Location / Access Notes</th><td>{{accessNotes}}</td></tr>
-  </table>
-  <div class="section">
-    <h3>Job Description</h3>
-    <p>{{description}}</p>
-  </div>
-  <div class="section">
-    <h3>Diagnostic Notes</h3>
-    <p>{{diagnosticNotes}}</p>
+  <div class="page">
+    <div class="company-header">
+      <div>
+        <div class="company-name">Affinity Property Services</div>
+        <div class="company-tagline">Professional Property Maintenance & Management</div>
+      </div>
+      <div style="text-align: right; font-size: 10px; color: #6b7280;">
+        <div>Job #{{jobNumber}}</div>
+      </div>
+    </div>
+
+    <div class="report-title">Job Sheet</div>
+
+    <table class="details-table">
+      <tr><th>Address:</th><td>{{propertyAddress}}</td></tr>
+      <tr><th>Engineer:</th><td>{{contractorName}}</td></tr>
+      <tr><th>Status:</th><td>{{status}}</td></tr>
+      <tr><th>Job Date:</th><td>{{scheduledDate}}</td></tr>
+      <tr><th>Job Time:</th><td>{{scheduledTime}}</td></tr>
+      <tr><th>Access Details:</th><td>{{tenantName}}{{#if tenantPhone}}: {{tenantPhone}}{{/if}}{{#if accessNotes}}<br/>{{accessNotes}}{{/if}}</td></tr>
+      <tr><th>Materials:</th><td>{{materials}}</td></tr>
+      <tr><th>Reported Issue:</th><td>{{description}}</td></tr>
+    </table>
+
+    {{#if lineItems.length}}
+    <div class="section-title">Description</div>
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th style="width: 40px; text-align: center;">#</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each lineItems}}
+        <tr>
+          <td class="number">{{inc @index}}</td>
+          <td>{{description}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+    {{/if}}
+
+    {{#if estimatedHours}}
+    <div class="estimate-box">
+      <span class="label">ESTIMATED TIME TO COMPLETE THE JOB:</span>
+      <span style="font-size: 14px; font-weight: 700;">{{estimatedHours}}</span>
+    </div>
+    {{/if}}
+
+    {{#if diagnosticNotes}}
+    <div class="section-title">Diagnostic Notes</div>
+    <p style="padding: 8px 0;">{{diagnosticNotes}}</p>
+    {{/if}}
+
+    {{> _image_grid title="Diagnostic Photos" images=diagnosticImages}}
   </div>
 </body>
 </html>

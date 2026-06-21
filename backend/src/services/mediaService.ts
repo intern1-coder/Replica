@@ -97,7 +97,8 @@ export async function uploadMedia(
   const ext = mimeType === 'image/jpeg' ? 'jpg' : (file.originalname.split('.').pop() ?? 'bin');
   const storageKey = `jobs/${jobId}/media/${crypto.randomUUID()}.${ext}`;
 
-  if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId === '') {
+  // Fallback to local storage if AWS credentials are not configured
+  if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId.includes('your-oci') || config.storage.accessKeyId === '') {
     const localPath = path.join(__dirname, '../../uploads', storageKey);
     await fs.mkdir(path.dirname(localPath), { recursive: true });
     await fs.writeFile(localPath, buffer);

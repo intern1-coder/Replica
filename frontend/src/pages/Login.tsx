@@ -29,54 +29,54 @@ export function Login() {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-color)' }}>
-      <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-xl)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)', width: '100%', maxWidth: '400px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+    <div className="app-shell items-center" style={{ justifyContent: 'center' }}>
+      <div className="section-card page-enter" style={{ width: '100%', maxWidth: '400px', margin: 0 }}>
         
-        <h1 style={{ fontSize: '1.5rem', marginBottom: 'var(--spacing-md)', textAlign: 'center' }}>Affinity Workspace</h1>
+        <h1 style={{ fontSize: '1.5rem', marginBottom: 'var(--space-lg)', textAlign: 'center' }}>Affinity Workspace</h1>
         
         {error && (
-          <div style={{ padding: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', backgroundColor: '#ffe3e3', color: 'var(--status-cancelled-text)', borderRadius: 'var(--border-radius)', fontSize: '0.9rem', textAlign: 'center' }}>
+          <div className="page-error" style={{ padding: 'var(--space-sm)' }}>
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-          <div>
-            <label htmlFor="email" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 'var(--spacing-xs)' }}>Email Address</label>
+        <form onSubmit={handleSubmit} className="form-section">
+          <div className="form-row">
+            <label htmlFor="email" className="form-label">Email Address</label>
             <input 
               id="email"
               type="email" 
               value={email} 
               onChange={e => setEmail(e.target.value)}
               placeholder="you@affinity.local"
-              style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)' }}
               autoComplete="email"
               required
             />
           </div>
           
-          <div>
-            <label htmlFor="password" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 'var(--spacing-xs)' }}>Password</label>
+          <div className="form-row">
+            <label htmlFor="password" className="form-label">Password</label>
             <input 
               id="password"
               type="password" 
               value={password} 
               onChange={e => setPassword(e.target.value)}
               placeholder="••••••••"
-              style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)' }}
               autoComplete="current-password"
               required
             />
           </div>
 
-          <button 
-            type="submit" 
-            className="primary" 
-            style={{ marginTop: 'var(--spacing-sm)', width: '100%', padding: '0.75rem' }}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Signing in...' : 'Sign In'}
-          </button>
+          <div className="form-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 'var(--space-xs)' }}>
+            <button 
+              type="submit" 
+              className="button primary" 
+              style={{ width: '100%' }}
+              disabled={isLoading}
+            >
+              {isLoading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </div>
         </form>
       </div>
     </div>

@@ -45,11 +45,8 @@ async function main() {
   // 3. Create a Property
   const property = await prisma.property.create({
     data: {
-      address: '123 Fake Street, London',
-      normalizedAddress: '123fakestreetlondon',
-      currentClientId: client.id,
-      currentTenantName: 'John Doe',
-      currentTenantPhone: '555-0101',
+      address: '123 Main St, London, SW1A 1AA',
+      normalizedAddress: '123 main st, london, sw1a 1aa',
     },
   });
 

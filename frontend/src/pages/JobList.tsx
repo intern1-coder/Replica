@@ -4,20 +4,25 @@ import { apiFetch } from '../utils/api';
 import type { Client } from './ClientList';
 import type { Property } from './PropertyList';
 import { useAuth } from '../contexts/AuthContext';
+import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness } from 'lucide-react';
+import { motion } from 'motion/react';
 
 export interface Job {
-  id: number;
+  id: string;
   sequence: number;
   status: 'TO_BE_CHECKED' | 'CHECKED' | 'QUOTED' | 'AUTHORISED' | 'COMPLETED' | 'CANCELLED';
-  clientId: number;
-  propertyId: number;
+  clientId: string;
+  propertyId: string;
   description: string | null;
+  materials: string | null;
+  quotedValue: number | null;
   tenantSnapshotName: string | null;
   tenantSnapshotPhone: string | null;
   version: number;
   createdAt: string;
   client?: Client;
   property?: Property;
+  assignedContractors?: { id: string; name: string }[];
 }
 
 export function JobList() {
@@ -26,25 +31,19 @@ export function JobList() {
   const [error, setError] = useState('');
   const { socket } = useAuth();
   
-  // Filter state
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     loadJobs();
-  }, [statusFilter]);
+  }, [statusFilter, searchQuery, page]);
 
-  // Socket.io Realtime Updates
   useEffect(() => {
     if (!socket) return;
-    
-    const handleStatusChanged = () => {
-      // Re-fetch jobs to reflect the status change
-      // Alternatively, we could patch the local state, but a refetch is safer for list sorting/filtering
-      loadJobs();
-    };
-
+    const handleStatusChanged = () => loadJobs();
     socket.on('job:statusChanged', handleStatusChanged);
-    
     return () => {
       socket.off('job:statusChanged', handleStatusChanged);
     };
@@ -53,10 +52,16 @@ export function JobList() {
   const loadJobs = async () => {
     setIsLoading(true);
     try {
-      // Build query string
-      const qs = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : '';
-      const response = await apiFetch(`/jobs${qs}`);
+      const params = new URLSearchParams();
+      if (statusFilter) params.append('status', statusFilter);
+      if (searchQuery) params.append('search', searchQuery);
+      params.append('page', page.toString());
+      
+      const response = await apiFetch(`/jobs?${params.toString()}`);
       setJobs(response.data || []);
+      if (response.meta) {
+        setTotalPages(response.meta.totalPages || 1);
+      }
     } catch (err: any) {
       setError('Failed to load jobs: ' + err.message);
     } finally {
@@ -64,79 +69,186 @@ export function JobList() {
     }
   };
 
+  const listContainer: any = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: { staggerChildren: 0.05 }
+    }
+  };
+
+  const listItem: any = {
+    hidden: { opacity: 0, y: 10 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring', duration: 0.4, bounce: 0 } }
+  };
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-md)' }}>
-        <h2>Jobs</h2>
-        <Link to="/jobs/new" className="button primary" style={{ display: 'inline-block', padding: 'var(--spacing-sm) var(--spacing-md)', background: '#0d6efd', color: 'white', textDecoration: 'none', borderRadius: '4px', fontSize: '0.9rem', fontWeight: 500 }}>
-          Create Job
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+      <div className="page-header">
+        <div className="page-header-title">
+          <h1 className="flex items-center gap-3">
+            <BriefcaseBusiness size={28} className="text-brand" style={{ color: 'var(--color-brand)' }} /> 
+            Jobs
+          </h1>
+          <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>View and manage maintenance jobs.</p>
+        </div>
+        
+        <Link to="/jobs/new" style={{ textDecoration: 'none' }}>
+          <motion.button 
+            className="button primary"
+            whileTap={{ scale: 0.97 }}
+            transition={{ type: "spring", duration: 0.4, bounce: 0.2 }}
+          >
+            <Plus size={18} /> Create Job
+          </motion.button>
         </Link>
       </div>
 
-      {error && (
-        <div style={{ padding: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', backgroundColor: 'var(--status-cancelled-bg)', color: 'var(--status-cancelled-text)', borderRadius: 'var(--border-radius)' }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="page-error">{error}</div>}
 
-      {/* Filters */}
-      <div style={{ marginBottom: 'var(--spacing-md)', display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center' }}>
-        <label style={{ fontSize: '0.9rem', fontWeight: 500 }}>Filter by Status:</label>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ minWidth: '150px' }}>
-          <option value="">All Statuses</option>
-          <option value="TO_BE_CHECKED">To Be Checked</option>
-          <option value="CHECKED">Checked</option>
-          <option value="QUOTED">Quoted</option>
-          <option value="AUTHORISED">Authorised</option>
-          <option value="COMPLETED">Completed</option>
-          <option value="CANCELLED">Cancelled</option>
-        </select>
+      <div className="filter-bar">
+        <div className="search-input-wrapper">
+          <Search size={18} />
+          <input 
+            type="text" 
+            className="search-input"
+            placeholder="Search by Job #, Address, or Client..." 
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="form-label" style={{ margin: 0 }}>Filter by Status:</label>
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} style={{ minWidth: '160px' }}>
+            <option value="">All Statuses</option>
+            <option value="TO_BE_CHECKED">To Be Checked</option>
+            <option value="CHECKED">Checked</option>
+            <option value="QUOTED">Quoted</option>
+            <option value="AUTHORISED">Authorised</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+        </div>
       </div>
 
-      {/* List Table */}
       {isLoading ? (
-        <p>Loading jobs...</p>
+        <div className="text-secondary" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading jobs...</div>
       ) : (
-        <table className="dense-table">
-          <thead>
-            <tr>
-              <th>Job #</th>
-              <th>Status</th>
-              <th>Address</th>
-              <th>Client</th>
-              <th>Date Created</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map(j => (
-              <tr key={j.id}>
-                <td className="tabular-nums">
-                  <Link to={`/jobs/${j.id}`} style={{ fontWeight: 600 }}>{j.sequence}</Link>
-                </td>
-                <td>
-                  <span className={`status-badge ${j.status.toLowerCase()}`}>
-                    {j.status.replace(/_/g, ' ')}
-                  </span>
-                </td>
-                <td>{j.property?.address || `Property #${j.propertyId.toString().substring(0,8)}`}</td>
-                <td>{j.client?.name || `Client #${j.clientId.toString().substring(0,8)}`}</td>
-                <td className="tabular-nums">{new Date(j.createdAt).toLocaleDateString()}</td>
-                <td>
-                  <Link to={`/jobs/${j.id}`} className="button secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', textDecoration: 'none' }}>
-                    Open
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {jobs.length === 0 && (
-              <tr>
-                <td colSpan={5} style={{ textAlign: 'center', padding: 'var(--spacing-lg)' }}>No jobs found.</td>
-              </tr>
+        <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {/* List Header */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: '1fr 1.5fr 2fr 2fr 1.5fr 1fr', 
+            gap: 'var(--space-md)', 
+            padding: 'var(--space-md) var(--space-xl)', 
+            borderBottom: '1px solid var(--color-border)',
+            color: 'var(--color-text-secondary)',
+            fontSize: '0.8125rem',
+            fontWeight: 500
+          }}>
+            <div>Job #</div>
+            <div>Status</div>
+            <div>Address</div>
+            <div>Client</div>
+            <div>Date Created</div>
+            <div style={{ textAlign: 'right' }}>Action</div>
+          </div>
+
+          <motion.ul 
+            variants={listContainer}
+            initial="hidden"
+            animate="show"
+            style={{ listStyle: 'none', padding: 0, margin: 0 }}
+          >
+            {jobs.length > 0 ? (
+              jobs.map((j) => (
+                <motion.li 
+                  key={j.id} 
+                  variants={listItem}
+                  style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '1fr 1.5fr 2fr 2fr 1.5fr 1fr', 
+                    gap: 'var(--space-md)', 
+                    padding: 'var(--space-md) var(--space-xl)', 
+                    borderBottom: '1px solid var(--color-border)',
+                    alignItems: 'center',
+                    transition: 'background-color 150ms ease-out'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-surface)'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <div className="tabular-nums">
+                    <Link to={`/jobs/${j.id}`} className="font-medium" style={{ fontSize: '1rem' }}>
+                      #{j.sequence}
+                    </Link>
+                  </div>
+                  <div>
+                    <span className={`status-badge ${j.status.toLowerCase()}`}>
+                      {j.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
+                    <MapPin size={16} className="text-muted" />
+                    {j.property?.address || `Property #${j.propertyId.toString().substring(0,8)}`}
+                  </div>
+                  <div className="flex items-center gap-2 text-secondary" style={{ fontSize: '0.9375rem' }}>
+                    <User size={16} className="text-muted" />
+                    {j.client?.name || `Client #${j.clientId.toString().substring(0,8)}`}
+                  </div>
+                  <div className="tabular-nums text-muted" style={{ fontSize: '0.875rem' }}>
+                    {new Date(j.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <Link to={`/jobs/${j.id}`} style={{ textDecoration: 'none' }}>
+                      <motion.button 
+                        className="button secondary small"
+                        whileTap={{ scale: 0.95 }}
+                        transition={{ type: "spring", duration: 0.3 }}
+                      >
+                        Open <ExternalLink size={14} />
+                      </motion.button>
+                    </Link>
+                  </div>
+                </motion.li>
+              ))
+            ) : (
+              <motion.li variants={listItem} style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>
+                <div className="empty-state" style={{ border: 'none', padding: 0 }}>
+                  <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg)', borderRadius: '50%', marginBottom: 'var(--space-md)' }}>
+                    <BriefcaseBusiness size={32} className="text-muted" />
+                  </div>
+                  <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No jobs found</p>
+                  <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
+                    {searchQuery || statusFilter ? "Try adjusting your filters." : "Create a job to get started."}
+                  </p>
+                </div>
+              </motion.li>
             )}
-          </tbody>
-        </table>
+          </motion.ul>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', borderTop: '1px solid var(--color-border)' }}>
+              <motion.button 
+                className="button secondary" 
+                disabled={page <= 1} 
+                onClick={() => setPage(p => p - 1)}
+                whileTap={{ scale: 0.97 }}
+              >
+                Previous
+              </motion.button>
+              <span className="text-secondary" style={{ fontSize: '0.875rem' }}>Page {page} of {totalPages}</span>
+              <motion.button 
+                className="button secondary" 
+                disabled={page >= totalPages} 
+                onClick={() => setPage(p => p + 1)}
+                whileTap={{ scale: 0.97 }}
+              >
+                Next
+              </motion.button>
+            </div>
+          )}
+        </div>
       )}
-    </div>
+    </motion.div>
   );
 }

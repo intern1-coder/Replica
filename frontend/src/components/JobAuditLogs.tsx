@@ -70,7 +70,14 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
           let afterVal = log.after[key];
           if (typeof beforeVal === 'object' && beforeVal !== null) beforeVal = beforeVal.name || beforeVal.id || JSON.stringify(beforeVal);
           if (typeof afterVal === 'object' && afterVal !== null) afterVal = afterVal.name || afterVal.id || JSON.stringify(afterVal);
-          changes.push(`changed ${key} from '${beforeVal || 'empty'}' to '${afterVal || 'empty'}'`);
+          
+          // Format long UUIDs to be more readable or hide them
+          const isUuid = (val: string) => typeof val === 'string' && val.length === 36 && val.split('-').length === 5;
+          if (isUuid(beforeVal)) beforeVal = 'assigned';
+          if (isUuid(afterVal)) afterVal = 'assigned';
+          if (key === 'version') continue; // Hide optimistic locking version
+          
+          changes.push(`changed ${key} to '${afterVal || 'empty'}'`);
         }
       }
       if (changes.length === 0) return `Updated ${log.entityType} (no significant changes).`;
@@ -82,44 +89,46 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
   if (!hasPermission) return null;
 
   return (
-    <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-md)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)', marginTop: 'var(--spacing-md)' }}>
-      <h3 style={{ fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: 'var(--spacing-sm)', marginBottom: 'var(--spacing-sm)' }}>Audit Trail (Immutable)</h3>
+    <div className="section-card">
+      <div className="section-card-header">
+        <h3 style={{ fontSize: '1rem', margin: 0 }}>Audit Trail (Immutable)</h3>
+      </div>
       
-      {error && <div style={{ color: 'var(--status-cancelled-text)', marginBottom: 'var(--spacing-sm)' }}>{error}</div>}
+      {error && <div className="page-error">{error}</div>}
 
       {isLoading && !error ? <p>Loading audit trail...</p> : !error && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+        <div className="flex" style={{ flexDirection: 'column', gap: 'var(--space-sm)' }}>
           {logs.map(log => (
-            <div key={log.id} style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--border-radius)', padding: 'var(--spacing-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div key={log.id} className="section-card" style={{ marginBottom: 0, padding: 'var(--space-sm)' }}>
+              <div className="flex justify-between items-center">
                 <div style={{ fontSize: '0.85rem' }}>
                   <span className={`status-badge ${log.action === 'DELETE' ? 'cancelled' : log.action === 'CREATE' ? 'authorised' : 'quoted'}`}>
                     {log.action}
                   </span>
-                  <strong style={{ marginLeft: 'var(--spacing-sm)' }}>{log.entityType}</strong> (ID: {log.entityId.slice(0, 8)}...)
-                  <span style={{ color: 'var(--text-secondary)', marginLeft: 'var(--spacing-sm)' }}>
+                  <strong style={{ marginLeft: 'var(--space-sm)' }}>{log.entityType}</strong> <span className="text-muted">(ID: {log.entityId.slice(0, 8)}...)</span>
+                  <span className="text-secondary" style={{ marginLeft: 'var(--space-sm)' }}>
                     by {log.performedBy?.name || 'Unknown'} at {new Date(log.createdAt).toLocaleString()}
                   </span>
-                  <div style={{ marginTop: 'var(--spacing-xs)', color: 'var(--text-primary)', fontStyle: 'italic' }}>
+                  <div className="text-primary" style={{ marginTop: 'var(--space-xs)', fontStyle: 'italic' }}>
                     {generateHumanReadableDiff(log)}
                   </div>
                 </div>
-                <button onClick={() => toggleExpand(log.id)} className="secondary" style={{ padding: '0.1rem 0.4rem', fontSize: '0.75rem' }}>
+                <button onClick={() => toggleExpand(log.id)} className="button secondary small">
                   {expandedLogId === log.id ? 'Hide Raw JSON' : 'View Raw JSON'}
                 </button>
               </div>
               
               {expandedLogId === log.id && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)', marginTop: 'var(--spacing-sm)', fontSize: '0.8rem' }}>
-                  <div style={{ background: 'var(--bg-color)', padding: 'var(--spacing-sm)', borderRadius: 'var(--border-radius)', overflowX: 'auto' }}>
+                <div className="detail-grid" style={{ marginTop: 'var(--space-sm)', fontSize: '0.8rem' }}>
+                  <div className="section-card" style={{ marginBottom: 0, padding: 'var(--space-sm)', backgroundColor: 'var(--color-bg)', overflowX: 'auto' }}>
                     <strong>Before:</strong>
-                    <pre style={{ margin: 0, marginTop: 'var(--spacing-xs)', color: 'var(--status-cancelled-text)' }}>
+                    <pre style={{ margin: 0, marginTop: 'var(--space-xs)', color: 'var(--color-danger)' }}>
                       {log.before ? JSON.stringify(log.before, null, 2) : 'null'}
                     </pre>
                   </div>
-                  <div style={{ background: 'var(--bg-color)', padding: 'var(--spacing-sm)', borderRadius: 'var(--border-radius)', overflowX: 'auto' }}>
+                  <div className="section-card" style={{ marginBottom: 0, padding: 'var(--space-sm)', backgroundColor: 'var(--color-bg)', overflowX: 'auto' }}>
                     <strong>After:</strong>
-                    <pre style={{ margin: 0, marginTop: 'var(--spacing-xs)', color: 'var(--status-authorised-text)' }}>
+                    <pre style={{ margin: 0, marginTop: 'var(--space-xs)', color: 'var(--color-success)' }}>
                       {log.after ? JSON.stringify(log.after, null, 2) : 'null'}
                     </pre>
                   </div>
@@ -127,7 +136,7 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
               )}
             </div>
           ))}
-          {logs.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>No audit events found.</p>}
+          {logs.length === 0 && <p className="text-secondary empty-state" style={{ border: 'none' }}>No audit events found.</p>}
         </div>
       )}
     </div>

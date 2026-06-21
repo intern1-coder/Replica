@@ -30,7 +30,7 @@ router.post(
 
       const user = await prisma.user.findFirst({
         where: { email, deletedAt: null },
-        select: { id: true, email: true, name: true, role: true, passwordHash: true },
+        select: { id: true, email: true, name: true, role: true, passwordHash: true, canAuthorizeJobs: true },
       });
 
       if (!user || !user.passwordHash) {

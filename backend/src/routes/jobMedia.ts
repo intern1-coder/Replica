@@ -18,7 +18,7 @@ router.use(requireAuth);
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN),
+  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
   // multer must run before express-validator so req.body is populated
   upload.single('file'),
   [

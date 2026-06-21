@@ -12,10 +12,19 @@ import config from '../config';
  *
  * @param storageKey - The OCI Object Storage key (JobMedia.storageKey)
  */
-export async function getMediaSignedUrl(storageKey: string): Promise<string> {
+export async function getMediaSignedUrl(storageKey: string, download: boolean = false): Promise<string> {
+  // If using mock credentials, return a local URL to the static express route
+  if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId.includes('your-oci') || config.storage.accessKeyId === '') {
+    const backendUrl = process.env.APP_URL || 'http://localhost:3000';
+    let url = `${backendUrl}/uploads/${storageKey}`;
+    if (download) url += '?download=true';
+    return url;
+  }
+
   const command = new GetObjectCommand({
     Bucket: config.storage.bucket,
     Key: storageKey,
+    ResponseContentDisposition: download ? `attachment; filename="${storageKey.split('/').pop()}"` : 'inline',
   });
 
   return getSignedUrl(s3, command, {

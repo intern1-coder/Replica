@@ -8,8 +8,8 @@ import { getPaginationParams, paginate } from '../lib/utils';
 
 const router = Router();
 router.use(requireAuth);
-// Only Admin and Owner can view audit logs.
-router.use(requireRole(Role.ADMIN, Role.OWNER));
+// Only Admin, Owner, and PM can view audit logs.
+router.use(requireRole(Role.ADMIN, Role.OWNER, Role.PM));
 
 // ── GET /api/audit-logs ────────────────────────────────────────────────────────
 // Retrieve audit logs globally or filtered by entity/job.

@@ -19,21 +19,37 @@ router.get(
   '/',
   [
     query('jobId').optional().isUUID().withMessage('jobId must be a valid UUID.'),
+    query('contractorId').optional().isUUID().withMessage('contractorId must be a valid UUID.'),
+    query('startDate').optional().isISO8601().toDate(),
+    query('endDate').optional().isISO8601().toDate(),
     query('page').optional().isInt({ min: 1 }).toInt(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { jobId } = req.query as { jobId?: string };
+      const { jobId, contractorId, startDate, endDate } = req.query as { 
+        jobId?: string;
+        contractorId?: string;
+        startDate?: Date;
+        endDate?: Date;
+      };
       const { page, limit, skip } = getPaginationParams(
         req.query as Record<string, string | undefined>
       );
 
-      const whereClause = {
+      const whereClause: any = {
         deletedAt: null,
-        ...(jobId ? { jobId } : {})
       };
+      
+      if (jobId) whereClause.jobId = jobId;
+      if (contractorId) whereClause.contractorId = contractorId;
+      
+      if (startDate || endDate) {
+        whereClause.workDate = {};
+        if (startDate) whereClause.workDate.gte = startDate;
+        if (endDate) whereClause.workDate.lte = endDate;
+      }
 
       const [workLogs, total] = await prisma.$transaction([
         prisma.workLog.findMany({
@@ -41,7 +57,15 @@ router.get(
           include: {
             contractor: { select: { id: true, name: true, role: true } },
             loggedBy: { select: { id: true, name: true } },
-            job: { select: { id: true, sequence: true, status: true, property: { select: { address: true } } } }
+            job: { 
+              select: { 
+                id: true, 
+                sequence: true, 
+                status: true, 
+                description: true,
+                property: { select: { address: true, accessNotes: true } } 
+              } 
+            }
           },
           orderBy: { workDate: 'desc' },
           skip,
@@ -104,17 +128,22 @@ router.post(
       .optional({ nullable: true })
       .isDecimal({ decimal_digits: '0,2' })
       .withMessage('materialCost must be a decimal ≥ 0.'),
+    body('hourlyRate')
+      .optional({ nullable: true })
+      .isDecimal({ decimal_digits: '0,2' })
+      .withMessage('hourlyRate must be a decimal ≥ 0.'),
     body('workDate').isISO8601().toDate().withMessage('workDate must be a valid ISO date.'),
     body('notes').optional({ nullable: true }).isString().trim(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { jobId, contractorId, hoursWorked, materialCost, workDate, notes } = req.body as {
+      const { jobId, contractorId, hoursWorked, materialCost, hourlyRate: providedHourlyRate, workDate, notes } = req.body as {
         jobId: string;
         contractorId: string;
         hoursWorked: string;
         materialCost?: string | null;
+        hourlyRate?: string | null;
         workDate: Date;
         notes?: string | null;
       };
@@ -138,12 +167,14 @@ router.post(
         res.status(422).json({ error: 'Unprocessable Entity', message: 'Contractor not found.' });
         return;
       }
-      if (!contractor.hourlyRate) {
-        res.status(422).json({
-          error: 'Unprocessable Entity',
-          message: `Contractor "${contractor.name}" has no hourly rate set. Set one before logging time.`,
+      // If an hourlyRate was provided, update the contractor's default rate
+      let rateApplied: any = contractor.hourlyRate ?? 0;
+      if (providedHourlyRate !== undefined && providedHourlyRate !== null) {
+        rateApplied = Number(providedHourlyRate);
+        await prisma.user.update({
+          where: { id: contractorId },
+          data: { hourlyRate: rateApplied }
         });
-        return;
       }
 
       const workLog = await prisma.workLog.create({
@@ -152,7 +183,7 @@ router.post(
           contractorId,
           loggedById: req.user!.id,
           hoursWorked,
-          rateApplied: contractor.hourlyRate, // ← frozen at log time (Rules.md)
+          rateApplied, // ← frozen at log time
           materialCost: materialCost ?? '0',
           workDate,
           notes,
@@ -167,7 +198,7 @@ router.post(
         workLogId: workLog.id,
         jobId,
         contractorId,
-        rateApplied: contractor.hourlyRate.toString(),
+        rateApplied: contractor.hourlyRate ? contractor.hourlyRate.toString() : '0',
         loggedById: req.user!.id,
       });
 
@@ -203,6 +234,10 @@ router.patch(
       .optional()
       .isDecimal({ decimal_digits: '0,2' })
       .withMessage('hoursWorked must be a decimal with up to 2 decimal places.'),
+    body('rateApplied')
+      .optional()
+      .isDecimal({ decimal_digits: '0,2' })
+      .withMessage('rateApplied must be a decimal with up to 2 decimal places.'),
     body('materialCost')
       .optional({ nullable: true })
       .isDecimal({ decimal_digits: '0,2' }),
@@ -220,8 +255,9 @@ router.patch(
         return;
       }
 
-      const { hoursWorked, materialCost, workDate, notes } = req.body as {
+      const { hoursWorked, rateApplied, materialCost, workDate, notes } = req.body as {
         hoursWorked?: string;
+        rateApplied?: string;
         materialCost?: string | null;
         workDate?: Date;
         notes?: string | null;
@@ -231,6 +267,7 @@ router.patch(
         where: { id: req.params['id'] },
         data: {
           hoursWorked,
+          rateApplied,
           // Decimal fields don't accept null — null means "don't change this field"
           materialCost: materialCost !== null ? materialCost : undefined,
           workDate,

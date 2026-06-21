@@ -27,7 +27,7 @@ const JOB_LIST_SELECT = {
   tenantSnapshotName: true,
   tenantSnapshotPhone: true,
   quotedValue: true,
-  assignedContractor: { select: { id: true, name: true } },
+  assignedContractors: { select: { id: true, name: true } },
   scheduledDate: true,
   completedAt: true,
   createdAt: true,
@@ -50,30 +50,48 @@ router.get(
     query('clientId').optional().isUUID(),
     query('propertyId').optional().isUUID(),
     query('assignedContractorId').optional().isUUID(),
+    query('search').optional().isString().trim(),
     query('page').optional().isInt({ min: 1 }).toInt(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { status, clientId, propertyId, assignedContractorId } = req.query as {
+      const { status, clientId, propertyId, assignedContractorId, search } = req.query as {
         status?: JobStatus;
         clientId?: string;
         propertyId?: string;
         assignedContractorId?: string;
+        search?: string;
       };
 
       const { page, limit, skip } = getPaginationParams(
         req.query as Record<string, string | undefined>
       );
 
-      const where = {
-        deletedAt: null,
-        ...(status ? { status } : {}),
-        ...(clientId ? { clientId } : {}),
-        ...(propertyId ? { propertyId } : {}),
-        ...(assignedContractorId ? { assignedContractorId } : {}),
-      };
+      const where: any = { deletedAt: null };
+      if (status) where.status = status;
+      if (clientId) where.clientId = clientId;
+      if (propertyId) where.propertyId = propertyId;
+      if (assignedContractorId) {
+        where.assignedContractors = {
+          some: { id: assignedContractorId }
+        };
+      }
+      
+      if (search) {
+        const searchNum = parseInt(search, 10);
+        const orConditions: any[] = [];
+        
+        if (!isNaN(searchNum)) {
+          orConditions.push({ sequence: searchNum });
+        }
+        
+        orConditions.push({ property: { address: { contains: search, mode: 'insensitive' } } });
+        orConditions.push({ client: { name: { contains: search, mode: 'insensitive' } } });
+        
+        where.OR = orConditions;
+      }
 
       const [jobs, total] = await prisma.$transaction([
         prisma.job.findMany({
@@ -106,7 +124,7 @@ router.get(
         include: {
           property: { select: { id: true, address: true, accessNotes: true, keyLocation: true } },
           client: { select: { id: true, name: true, email: true, phone: true } },
-          assignedContractor: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true, role: true } },
           generatedDocuments: true,
         },
       });
@@ -139,7 +157,8 @@ router.post(
     body('description').optional({ nullable: true }).isString().trim(),
     body('quotedValue').optional({ nullable: true }).isDecimal()
       .withMessage('quotedValue must be a decimal number.'),
-    body('assignedContractorId').optional({ nullable: true }).isUUID(),
+    body('assignedContractorIds').optional({ nullable: true }).isArray(),
+    body('assignedContractorIds.*').optional().isUUID(),
     body('scheduledDate').optional({ nullable: true }).isISO8601().toDate(),
     body('tenantId').optional({ nullable: true }).isUUID(),
     body('newTenantName').optional({ nullable: true }).isString().trim(),
@@ -148,13 +167,13 @@ router.post(
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { propertyId, clientId, description, quotedValue, assignedContractorId, scheduledDate } =
+      const { propertyId, clientId, description, quotedValue, assignedContractorIds, scheduledDate } =
         req.body as {
           propertyId: string;
           clientId: string;
           description?: string | null;
           quotedValue?: string | null;
-          assignedContractorId?: string | null;
+          assignedContractorIds?: string[] | null;
           scheduledDate?: Date | null;
           tenantId?: string | null;
           newTenantName?: string | null;
@@ -217,14 +236,16 @@ router.post(
           tenantSnapshotPhone: finalTenantPhone,
           description,
           quotedValue: quotedValue ? quotedValue : undefined,
-          assignedContractorId,
+          assignedContractors: assignedContractorIds && assignedContractorIds.length > 0 
+            ? { connect: assignedContractorIds.map((id) => ({ id })) } 
+            : undefined,
           scheduledDate,
         },
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
           tenant: { select: { id: true, name: true, phone: true } },
-          assignedContractor: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true, role: true } },
         },
       });
 
@@ -260,8 +281,10 @@ router.patch(
     body('description').optional({ nullable: true }).isString().trim(),
     body('diagnosticNotes').optional({ nullable: true }).isString().trim(),
     body('completionNotes').optional({ nullable: true }).isString().trim(),
+    body('materials').optional({ nullable: true }).isString().trim(),
     body('quotedValue').optional({ nullable: true }).isDecimal(),
-    body('assignedContractorId').optional({ nullable: true }).isUUID(),
+    body('assignedContractorIds').optional({ nullable: true }).isArray(),
+    body('assignedContractorIds.*').optional().isUUID(),
     body('scheduledDate').optional({ nullable: true }).isISO8601().toDate(),
   ],
   validate,
@@ -276,13 +299,14 @@ router.patch(
         return;
       }
 
-      const { description, diagnosticNotes, completionNotes, quotedValue, assignedContractorId, scheduledDate } =
+      const { description, diagnosticNotes, completionNotes, materials, quotedValue, assignedContractorIds, scheduledDate } =
         req.body as {
           description?: string | null;
           diagnosticNotes?: string | null;
           completionNotes?: string | null;
+          materials?: string | null;
           quotedValue?: string | null;
-          assignedContractorId?: string | null;
+          assignedContractorIds?: string[] | null;
           scheduledDate?: Date | null;
         };
 
@@ -292,14 +316,15 @@ router.patch(
           description,
           diagnosticNotes,
           completionNotes,
+          materials,
           quotedValue: quotedValue !== undefined ? quotedValue : undefined,
-          assignedContractorId,
+          assignedContractors: assignedContractorIds ? { set: assignedContractorIds.map((id) => ({ id })) } : undefined,
           scheduledDate,
         },
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
-          assignedContractor: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true, role: true } },
         },
       });
 

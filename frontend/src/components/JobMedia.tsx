@@ -45,7 +45,8 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
 
       try {
         const token = localStorage.getItem('affinity_token');
-        const res = await fetch(`http://localhost:3000/api/job-media`, {
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+        const res = await fetch(`${apiBase}/job-media`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -65,8 +66,8 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { 'image/*': [] } });
 
   return (
-    <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-md)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)', marginTop: 'var(--spacing-md)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)' }}>
+    <div className="section-card">
+      <div className="section-card-header flex justify-between items-center" style={{ marginBottom: 'var(--space-md)' }}>
         <h3 style={{ fontSize: '1rem', margin: 0 }}>Job Media</h3>
         <select value={uploadType} onChange={(e) => setUploadType(e.target.value as any)} style={{ padding: '0.2rem' }}>
           <option value="DIAGNOSTIC">Diagnostic Photos</option>
@@ -74,41 +75,37 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
         </select>
       </div>
 
-      {error && <div style={{ color: 'var(--status-cancelled-text)', marginBottom: 'var(--spacing-sm)' }}>{error}</div>}
+      {error && <div className="page-error">{error}</div>}
 
-      <div {...getRootProps()} style={{ 
-        border: '2px dashed var(--border-color)', 
-        padding: 'var(--spacing-lg)', 
-        textAlign: 'center', 
-        borderRadius: 'var(--border-radius)',
-        backgroundColor: isDragActive ? 'var(--status-checked-bg)' : 'transparent',
-        cursor: 'pointer',
-        marginBottom: 'var(--spacing-md)'
+      <div {...getRootProps()} className="dropzone" style={{ 
+        backgroundColor: isDragActive ? 'var(--color-bg)' : 'transparent',
+        borderColor: isDragActive ? 'var(--color-brand)' : 'var(--color-border)',
+        marginBottom: 'var(--space-md)'
       }}>
         <input {...getInputProps()} />
         {isDragActive ? (
-          <p>Drop the files here ...</p>
+          <p className="font-medium text-primary">Drop the files here ...</p>
         ) : (
-          <p style={{ margin: 0, color: 'var(--text-secondary)' }}>Drag & drop some images here, or click to select files</p>
+          <p className="text-secondary" style={{ margin: 0 }}>Drag & drop some images here, or click to select files</p>
         )}
       </div>
 
       {isLoading ? <p>Loading media...</p> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--spacing-sm)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--space-sm)' }}>
           {mediaList.map(media => (
-            <div key={media.id} style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--border-radius)', overflow: 'hidden' }}>
+            <div key={media.id} className="section-card" style={{ marginBottom: 0, padding: 0, overflow: 'hidden' }}>
               {media.presignedUrl ? (
                 <img src={media.presignedUrl} alt="Job Media" style={{ width: '100%', height: '120px', objectFit: 'cover' }} />
               ) : (
-                <div style={{ width: '100%', height: '120px', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>No Preview</div>
+                <div className="flex items-center justify-center text-muted" style={{ width: '100%', height: '120px', background: 'var(--color-bg)' }}>No Preview</div>
               )}
-              <div style={{ padding: 'var(--spacing-xs)', fontSize: '0.75rem', textAlign: 'center', backgroundColor: 'var(--bg-color)' }}>
+              <div className="font-medium text-secondary" style={{ padding: 'var(--space-xs)', fontSize: '0.75rem', textAlign: 'center', backgroundColor: 'var(--color-bg)', borderTop: '1px solid var(--color-border)' }}>
                 {media.type}
               </div>
             </div>
           ))}
           {mediaList.length === 0 && (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-secondary)' }}>No media uploaded yet.</div>
+            <div className="empty-state" style={{ gridColumn: '1 / -1', border: 'none' }}>No media uploaded yet.</div>
           )}
         </div>
       )}

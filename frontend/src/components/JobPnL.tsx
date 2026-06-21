@@ -54,31 +54,33 @@ export function JobPnL({ jobId }: { jobId: string }) {
   };
 
   if (isLoading) return <p>Loading financials...</p>;
-  if (error) return <div style={{ color: 'var(--status-cancelled-text)' }}>{error}</div>;
+  if (error) return <div className="page-error">{error}</div>;
   if (!pnl) return <p>No financial data available yet.</p>;
 
   const totalCost = pnl.laborCost + pnl.materialCost;
 
   return (
-    <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-md)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)', marginTop: 'var(--spacing-md)' }}>
-      <h3 style={{ fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: 'var(--spacing-sm)', marginBottom: 'var(--spacing-sm)' }}>Financials (P&L)</h3>
+    <div className="section-card">
+      <div className="section-card-header">
+        <h3 style={{ fontSize: '1rem', margin: 0 }}>Financials (P&L)</h3>
+      </div>
       
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--spacing-md)' }}>
-        <div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Total Revenue (Quoted)</div>
-          <div className="tabular-nums" style={{ fontSize: '1.2rem', fontWeight: 600 }}>£{Number(pnl.revenue || 0).toFixed(2)}</div>
+      <div className="detail-grid">
+        <div className="section-card" style={{ marginBottom: 0 }}>
+          <div className="text-secondary" style={{ fontSize: '0.8rem' }}>Total Revenue (Quoted)</div>
+          <div className="tabular-nums font-medium" style={{ fontSize: '1.2rem' }}>£{Number(pnl.revenue || 0).toFixed(2)}</div>
         </div>
-        <div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Total Cost</div>
-          <div className="tabular-nums" style={{ fontSize: '1.2rem', fontWeight: 600 }}>£{Number(totalCost || 0).toFixed(2)}</div>
+        <div className="section-card" style={{ marginBottom: 0 }}>
+          <div className="text-secondary" style={{ fontSize: '0.8rem' }}>Total Cost</div>
+          <div className="tabular-nums font-medium" style={{ fontSize: '1.2rem' }}>£{Number(totalCost || 0).toFixed(2)}</div>
         </div>
-        <div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Labor Cost</div>
-          <div className="tabular-nums" style={{ fontSize: '1.1rem' }}>£{Number(pnl.laborCost || 0).toFixed(2)}</div>
+        <div className="section-card" style={{ marginBottom: 0 }}>
+          <div className="text-secondary" style={{ fontSize: '0.8rem' }}>Labor Cost</div>
+          <div className="tabular-nums font-medium" style={{ fontSize: '1.1rem' }}>£{Number(pnl.laborCost || 0).toFixed(2)}</div>
         </div>
-        <div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Profit</div>
-          <div className="tabular-nums" style={{ fontSize: '1.2rem', fontWeight: 600, color: (pnl.profit || 0) >= 0 ? 'var(--status-authorised-text)' : 'var(--status-cancelled-text)' }}>
+        <div className="section-card" style={{ marginBottom: 0 }}>
+          <div className="text-secondary" style={{ fontSize: '0.8rem' }}>Profit</div>
+          <div className="tabular-nums font-medium" style={{ fontSize: '1.2rem', color: (pnl.profit || 0) >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
             £{Number(pnl.profit || 0).toFixed(2)}
           </div>
         </div>

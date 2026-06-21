@@ -10,11 +10,12 @@ import { JobMediaUpload } from '../components/JobMedia';
 import { JobCommunications } from '../components/JobCommunications';
 import { JobAuditLogs } from '../components/JobAuditLogs';
 import { JobDocuments } from '../components/JobDocuments';
+import { JobEditDetails } from '../components/JobEditDetails';
 
 // Maps current status to legal next statuses
 const allowedTransitions: Record<string, string[]> = {
   TO_BE_CHECKED: ['CHECKED', 'CANCELLED'],
-  CHECKED: ['QUOTED', 'AUTHORISED', 'CANCELLED'],
+  CHECKED: ['QUOTED', 'CANCELLED'],
   QUOTED: ['AUTHORISED', 'CANCELLED'],
   AUTHORISED: ['COMPLETED', 'CANCELLED'],
   COMPLETED: [],
@@ -40,8 +41,8 @@ export function JobDetail() {
   useEffect(() => {
     if (!socket || !id) return;
 
-    const handleStatusChanged = (payload: { jobId: number }) => {
-      if (payload.jobId === Number(id)) {
+    const handleStatusChanged = (payload: { jobId: string }) => {
+      if (payload.jobId === id) {
         // If this specific job changed, prompt a refresh or auto-refresh
         // Auto-refresh is cleaner for read-only observers, but if we are editing, we might want to warn.
         // We'll just auto-refresh the data.
@@ -98,68 +99,82 @@ export function JobDetail() {
   };
 
   if (isLoading) return <p>Loading job details...</p>;
-  if (error && !job) return <p style={{ color: 'var(--status-cancelled-text)' }}>{error}</p>;
+  if (error && !job) return <p className="text-secondary">{error}</p>;
   if (!job) return <p>Job not found</p>;
 
   const availableTransitions = allowedTransitions[job.status] || [];
 
   return (
-    <div>
-      <div style={{ marginBottom: 'var(--spacing-md)' }}>
-        <Link to="/jobs" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: 'var(--text-secondary)' }}>
+    <div className="page-enter">
+      <div style={{ marginBottom: 'var(--space-md)' }}>
+        <Link to="/jobs" className="flex items-center gap-2 text-secondary font-medium">
           <ArrowLeft size={16} /> Back to Jobs
         </Link>
       </div>
 
       {conflictError && (
-        <div style={{ padding: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', backgroundColor: 'var(--status-quoted-bg)', color: 'var(--status-quoted-text)', border: '1px solid #ffeeba', borderRadius: 'var(--border-radius)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <strong>Update Conflict:</strong> Another user has modified this job since you opened it.
+        <div className="page-error">
+          <div className="flex justify-between items-center" style={{ width: '100%' }}>
+            <div>
+              <strong>Update Conflict:</strong> Another user has modified this job since you opened it.
+            </div>
+            <button onClick={loadJob} className="button secondary">
+              <RefreshCw size={16} /> Refresh Data
+            </button>
           </div>
-          <button onClick={loadJob} className="secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', backgroundColor: 'white' }}>
-            <RefreshCw size={16} /> Refresh Data
-          </button>
         </div>
       )}
 
       {error && !conflictError && (
-        <div style={{ padding: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', backgroundColor: 'var(--status-cancelled-bg)', color: 'var(--status-cancelled-text)', borderRadius: 'var(--border-radius)' }}>
+        <div className="page-error">
           {error}
         </div>
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: 'var(--surface-color)', padding: 'var(--spacing-lg)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)', marginBottom: 'var(--spacing-lg)' }}>
+      <div className="section-card flex justify-between items-center" style={{ flexWrap: 'wrap', gap: 'var(--space-md)' }}>
         <div>
-          <h2 style={{ marginBottom: 'var(--spacing-xs)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+          <h2 className="flex items-center gap-2" style={{ margin: 0, marginBottom: 'var(--space-xs)' }}>
             {job.sequence}
-            <span className={`status-badge ${job.status.toLowerCase()}`} style={{ fontSize: '0.85rem' }}>
+            <span className={`status-badge ${job.status.toLowerCase()}`}>
               {job.status.replace(/_/g, ' ')}
             </span>
           </h2>
-          <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
-            {job.property?.addressLine1}, {job.property?.city}
+          <p className="text-secondary" style={{ margin: 0 }}>
+            {job.property?.address}
           </p>
         </div>
         
         {/* Status Transition Controls */}
         {availableTransitions.length > 0 && (
-          <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-            {availableTransitions.map(nextStatus => (
-              <button 
-                key={nextStatus}
-                onClick={() => handleStatusChange(nextStatus)}
-                disabled={isUpdatingStatus || conflictError}
-                className={nextStatus === 'CANCELLED' ? 'secondary' : 'primary'}
-                style={{
-                  backgroundColor: nextStatus === 'CANCELLED' ? 'var(--bg-color)' : `var(--status-${nextStatus.toLowerCase().replace(/_/g, '-')}-bg)`,
-                  color: nextStatus === 'CANCELLED' ? 'inherit' : `var(--status-${nextStatus.toLowerCase().replace(/_/g, '-')}-text)`,
-                  border: nextStatus === 'CANCELLED' ? '1px solid var(--border-color)' : 'none'
-                }}
-              >
-                Mark as {nextStatus.replace(/_/g, ' ')}
-              </button>
-            ))}
+          <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+            {availableTransitions.map(nextStatus => {
+              // Hide AUTHORISED button if not Admin/Owner and lacking canAuthorizeJobs
+              if (nextStatus === 'AUTHORISED') {
+                const token = localStorage.getItem('affinity_token');
+                let hasAuthPerm = false;
+                if (token) {
+                  try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    if (payload.role === 'ADMIN' || payload.role === 'OWNER' || payload.canAuthorizeJobs) {
+                      hasAuthPerm = true;
+                    }
+                  } catch (e) {}
+                }
+                if (!hasAuthPerm) return null;
+              }
+
+              return (
+                <button 
+                  key={nextStatus}
+                  onClick={() => handleStatusChange(nextStatus)}
+                  disabled={isUpdatingStatus || conflictError}
+                  className={`button ${nextStatus === 'CANCELLED' ? 'danger' : 'primary'}`}
+                >
+                  Mark as {nextStatus.replace(/_/g, ' ')}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -168,31 +183,47 @@ export function JobDetail() {
       <JobAuditLogs jobId={job.id} />
 
       {/* Detail Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 'var(--spacing-md)' }}>
-        <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-md)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)' }}>
-          <h3 style={{ fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: 'var(--spacing-sm)' }}>Client Information</h3>
-          <p><strong>Name:</strong> {job.client?.name}</p>
-          <p><strong>Email:</strong> {job.client?.email || 'N/A'}</p>
-          <p><strong>Phone:</strong> {job.client?.phone || 'N/A'}</p>
+      <div className="detail-grid" style={{ marginBottom: 'var(--space-xl)' }}>
+        <div className="section-card" style={{ marginBottom: 0 }}>
+          <div className="section-card-header">
+            <h3 style={{ fontSize: '1rem', margin: 0 }}>Client Information</h3>
+          </div>
+          <div className="form-row">
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span> 
+            <span className="font-medium">{job.client?.name}</span>
+          </div>
+          <div className="form-row" style={{ marginTop: 'var(--space-xs)' }}>
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Email:</span> 
+            <span className="font-medium">{job.client?.email || 'N/A'}</span>
+          </div>
+          <div className="form-row" style={{ marginTop: 'var(--space-xs)' }}>
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Phone:</span> 
+            <span className="font-medium">{job.client?.phone || 'N/A'}</span>
+          </div>
         </div>
 
-        <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-md)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)' }}>
-          <h3 style={{ fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: 'var(--spacing-sm)' }}>Tenant Information (Snapshot)</h3>
-          <p><strong>Name:</strong> {job.tenantSnapshotName || 'N/A'}</p>
-          <p><strong>Phone:</strong> {job.tenantSnapshotPhone || 'N/A'}</p>
+        <div className="section-card" style={{ marginBottom: 0 }}>
+          <div className="section-card-header">
+            <h3 style={{ fontSize: '1rem', margin: 0 }}>Tenant Information (Snapshot)</h3>
+          </div>
+          <div className="form-row">
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span> 
+            <span className="font-medium">{job.tenantSnapshotName || 'N/A'}</span>
+          </div>
+          <div className="form-row" style={{ marginTop: 'var(--space-xs)' }}>
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Phone:</span> 
+            <span className="font-medium">{job.tenantSnapshotPhone || 'N/A'}</span>
+          </div>
         </div>
       </div>
       
-      <div style={{ background: 'var(--surface-color)', padding: 'var(--spacing-md)', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-color)', marginTop: 'var(--spacing-md)' }}>
-        <h3 style={{ fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: 'var(--spacing-sm)' }}>Job Description</h3>
-        <p style={{ whiteSpace: 'pre-wrap' }}>{job.description || 'No description provided.'}</p>
-      </div>
+      <JobEditDetails job={job} onUpdated={loadJob} />
 
       <JobPnL jobId={job.id} />
       <JobWorkLogs jobId={job.id} />
       <JobCommunications jobId={job.id} />
       <JobMediaUpload jobId={job.id} />
-      <JobDocuments jobId={job.id} />
+      <JobDocuments jobId={job.id} jobStatus={job.status} />
 
     </div>
   );
