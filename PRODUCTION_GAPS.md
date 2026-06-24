@@ -22,3 +22,6 @@ While the Affinity codebase has a strong architectural foundation (including Doc
 ## 5. Git Hooks & Code Quality Enforcement
 * Tools like **Husky** or **lint-staged** are missing.
 * **Recommendation**: Add pre-commit hooks to enforce ESLint and TypeScript compilation checks automatically, preventing bad code from being committed to the repository.
+
+## nisarga
+git@github.com:rehman-vlookup/affinitty_01.git
