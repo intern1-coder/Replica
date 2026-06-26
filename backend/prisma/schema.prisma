@@ -90,8 +90,6 @@ model User {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  assignedJobs             Job[]              @relation("JobContractors")
-  contractorWorkLogs       WorkLog[]          @relation("ContractorWorkLogs")
   loggedWorkLogs           WorkLog[]          @relation("LoggedWorkLogs")
   uploadedMedia            JobMedia[]         @relation("UploadedMedia")
   performedCommunications  CommunicationLog[] @relation("PerformedCommunications")
@@ -243,7 +241,7 @@ model Job {
   materials       String?
   quotedValue     Decimal? @db.Decimal(10, 2)
 
-  assignedContractors User[]   @relation("JobContractors")
+  assignedContractors Engineer[] @relation("JobContractors")
 
   scheduledDate DateTime?
   completedAt   DateTime?
@@ -276,7 +274,7 @@ model WorkLog {
   job          Job      @relation(fields: [jobId], references: [id])
 
   contractorId String
-  contractor   User     @relation("ContractorWorkLogs", fields: [contractorId], references: [id])
+  contractor   Engineer @relation("ContractorWorkLogs", fields: [contractorId], references: [id])
 
   loggedById   String
   loggedBy     User     @relation("LoggedWorkLogs", fields: [loggedById], references: [id])
@@ -419,4 +417,38 @@ model JobQuoteLineItem {
 
   @@map("job_quote_line_items")
   @@index([jobId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Engineer
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Engineer {
+  id         String    @id @default(uuid())
+  name       String
+  phone      String?
+  email      String?
+  hourlyRate Decimal?  @db.Decimal(10, 2)
+
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  assignedJobs Job[]     @relation("JobContractors")
+  workLogs     WorkLog[] @relation("ContractorWorkLogs")
+
+  @@map("engineers")
+  @@index([name])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Setting
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
 }

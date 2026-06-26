@@ -50,6 +50,13 @@ async function main() {
     },
   });
 
+  // 4. Seed default VAT rate (only if not already set)
+  await prisma.setting.upsert({
+    where: { key: 'vat_rate' },
+    create: { key: 'vat_rate', value: '0.2' },
+    update: {},
+  });
+
   console.log('Seed successful! You can log in with:');
   console.log(`- ${admin.email}`);
   console.log(`- ${pm.email}`);
