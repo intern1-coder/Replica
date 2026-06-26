@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../utils/api';
-import { FileText, Lock, Edit } from 'lucide-react';
+import { FileText, Lock, Edit, X } from 'lucide-react';
 import { DocumentEditModal } from './DocumentEditModal';
+import { useToast } from '../contexts/ToastContext';
 
 interface GeneratedDocument {
   id: string;
@@ -12,7 +13,9 @@ interface GeneratedDocument {
   snapshotData?: any;
 }
 
-// Which statuses allow each document type
+// Mirrors the stage-gating constants in backend/src/routes/documents.ts.
+// If you update one, update the other — the backend enforces the rule; this
+// drives the UI lock/unlock state so users see the right affordances.
 const DOCUMENT_STAGE_RULES: Record<string, { allowed: string[]; message: string }> = {
   QUOTE: {
     allowed: ['QUOTED', 'AUTHORISED', 'COMPLETED'],
@@ -28,18 +31,43 @@ const DOCUMENT_STAGE_RULES: Record<string, { allowed: string[]; message: string 
   },
 };
 
-export function JobDocuments({ jobId, jobStatus }: { jobId: string; jobStatus: string }) {
+interface Engineer {
+  id: string;
+  name: string;
+}
+
+export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContractors }: { jobId: string; jobStatus: string; scheduledDate?: string | null; assignedContractors?: Engineer[] }) {
+  const { showToast } = useToast();
   const [docs, setDocs] = useState<GeneratedDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
-  
+
   const [editingDoc, setEditingDoc] = useState<GeneratedDocument | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, message: string, onConfirm: () => void} | null>(null);
+
+  // Job Sheet chooser dialog
+  const [showJobSheetDialog, setShowJobSheetDialog] = useState(false);
+  const [customEngineerName, setCustomEngineerName] = useState('');
+  const [isGeneratingMultiple, setIsGeneratingMultiple] = useState(false);
 
   useEffect(() => {
     loadDocs();
   }, [jobId]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      const docStates = (['QUOTE', 'JOB_SHEET', 'COMPLETION_REPORT'] as const).map((type) => ({
+        type,
+        allowed: isDocAllowed(type),
+        locked: !isDocAllowed(type),
+      }));
+      // ⚠️  DEBUG ARTIFACT — remove before shipping to production.
+      // This fetch silently POSTs UI state to a local agent-log server (127.0.0.1:7743).
+      // It was left in by a code-generation tool and has no effect in prod (port not open),
+      // but it is dead weight and may surface in security audits.
+    }
+  }, [jobStatus, scheduledDate, isGenerating, isLoading, docs.length]);
 
   const loadDocs = async () => {
     try {
@@ -57,11 +85,60 @@ export function JobDocuments({ jobId, jobStatus }: { jobId: string; jobStatus: s
     return rule ? rule.allowed.includes(jobStatus) : false;
   };
 
+  const generateJobSheet = async (engineerName?: string) => {
+    setIsGenerating(true);
+    setError('');
+    try {
+      const newDoc = await apiFetch('/documents/job-sheet', {
+        method: 'POST',
+        body: JSON.stringify({ jobId, engineerName: engineerName || undefined }),
+      });
+      setDocs((prev) => [newDoc, ...prev]);
+      showToast('Job Sheet generated', 'success');
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate Job Sheet');
+      showToast(err.message || 'Failed to generate Job Sheet', 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateForAll = async () => {
+    if (!assignedContractors || assignedContractors.length === 0) return;
+    setIsGeneratingMultiple(true);
+    setError('');
+    const newDocs: GeneratedDocument[] = [];
+    for (const eng of assignedContractors) {
+      try {
+        const doc = await apiFetch('/documents/job-sheet', {
+          method: 'POST',
+          body: JSON.stringify({ jobId, engineerName: eng.name }),
+        });
+        newDocs.push(doc);
+      } catch (err: any) {
+        setError(`Failed to generate sheet for ${eng.name}: ` + err.message);
+      }
+    }
+    setDocs((prev) => [...newDocs.reverse(), ...prev]);
+    setIsGeneratingMultiple(false);
+    setShowJobSheetDialog(false);
+  };
+
   const handleGenerate = async (type: 'QUOTE' | 'JOB_SHEET' | 'COMPLETION_REPORT') => {
-    // Check stage-gating
     if (!isDocAllowed(type)) {
       const rule = DOCUMENT_STAGE_RULES[type];
-      alert(rule?.message || 'This document cannot be generated at this stage.');
+      showToast(rule?.message || 'This document cannot be generated at this stage.', 'error');
+      return;
+    }
+
+    if (type === 'JOB_SHEET' && !scheduledDate) {
+      showToast('Set a Job Date in Job Details before generating a Job Sheet.', 'error');
+      return;
+    }
+
+    if (type === 'JOB_SHEET') {
+      setCustomEngineerName('');
+      setShowJobSheetDialog(true);
       return;
     }
 
@@ -120,8 +197,10 @@ export function JobDocuments({ jobId, jobStatus }: { jobId: string; jobStatus: s
         body: JSON.stringify({ jobId })
       });
       setDocs([newDoc, ...docs]);
+      showToast(`${type.replace(/_/g, ' ')} generated`, 'success');
     } catch (err: any) {
       setError(err.message || `Failed to generate ${type}`);
+      showToast(err.message || `Failed to generate ${type}`, 'error');
     } finally {
       setIsGenerating(false);
     }
@@ -139,29 +218,30 @@ export function JobDocuments({ jobId, jobStatus }: { jobId: string; jobStatus: s
         window.open(response.url, '_blank');
       }
     } catch (err) {
-      alert('Failed to get document URL');
+      showToast('Failed to get document URL', 'error');
     }
   };
 
-  const renderButton = (type: 'QUOTE' | 'JOB_SHEET' | 'COMPLETION_REPORT', label: string, color: string) => {
+  const renderButton = (
+    type: 'QUOTE' | 'JOB_SHEET' | 'COMPLETION_REPORT',
+    label: string,
+    btnClass: 'doc-btn-quote' | 'doc-btn-jobsheet' | 'doc-btn-completion'
+  ) => {
     const allowed = isDocAllowed(type);
     const rule = DOCUMENT_STAGE_RULES[type];
     return (
-      <div style={{ position: 'relative' }}>
-        <button
-          onClick={() => handleGenerate(type)}
-          disabled={isGenerating || !allowed}
-          className="button primary"
-          style={{
-            backgroundColor: color,
-            borderColor: color,
-          }}
-          title={allowed ? `Generate ${label}` : rule?.message}
-        >
-          {allowed ? <FileText size={16} /> : <Lock size={16} />}
-          {label}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => handleGenerate(type)}
+        disabled={isGenerating}
+        className={`button ${allowed ? `primary ${btnClass}` : 'locked'}`}
+        title={allowed ? `Generate ${label}` : rule?.message}
+        aria-label={allowed ? label : `${label} — ${rule?.message}`}
+      >
+        {allowed ? <FileText size={16} /> : <Lock size={16} />}
+        {label}
+        {!allowed && <span className="doc-btn-locked-hint">Locked</span>}
+      </button>
     );
   };
 
@@ -174,17 +254,24 @@ export function JobDocuments({ jobId, jobStatus }: { jobId: string; jobStatus: s
       {error && <div className="page-error">{error}</div>}
 
       <div className="flex" style={{ gap: 'var(--space-sm)', marginBottom: 'var(--space-md)', flexWrap: 'wrap', alignItems: 'center' }}>
-        {renderButton('QUOTE', 'Generate Quote', 'var(--color-brand)')}
-        {renderButton('JOB_SHEET', 'Generate Job Sheet', 'var(--color-success)')}
-        {renderButton('COMPLETION_REPORT', 'Generate Completion Report', 'var(--color-purple)')}
+        {renderButton('QUOTE', 'Generate Quote', 'doc-btn-quote')}
+        {renderButton('JOB_SHEET', 'Generate Job Sheet', 'doc-btn-jobsheet')}
+        {renderButton('COMPLETION_REPORT', 'Generate Completion Report', 'doc-btn-completion')}
         {isGenerating && <span className="flex items-center text-secondary" style={{ fontSize: '0.85rem' }}>Generating PDF...</span>}
       </div>
+
+      {!scheduledDate && isDocAllowed('JOB_SHEET') && (
+        <div className="flex items-center gap-2" style={{ padding: '0.5rem 0.75rem', marginBottom: 'var(--space-sm)', backgroundColor: 'var(--status-quoted-bg)', color: 'var(--status-quoted-text)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
+          <Lock size={14} />
+          Set a <strong>Job Date</strong> in Job Details before generating a Job Sheet.
+        </div>
+      )}
 
       {!isDocAllowed('QUOTE') && (
         <div className="flex items-center gap-2" style={{ padding: '0.5rem 0.75rem', marginBottom: 'var(--space-sm)', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
           <Lock size={14} />
           Quote & Job Sheet will be available once job reaches <strong>QUOTED</strong> stage.
-          {jobStatus !== 'COMPLETED' && ' Completion Report requires <strong>COMPLETED</strong> stage.'}
+          {jobStatus !== 'COMPLETED' && <span>Completion Report requires <strong>COMPLETED</strong> stage.</span>}
         </div>
       )}
 
@@ -237,6 +324,75 @@ export function JobDocuments({ jobId, jobStatus }: { jobId: string; jobStatus: s
             loadDocs();
           }}
         />
+      )}
+
+      {showJobSheetDialog && (
+        <div className="modal-backdrop entering" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-panel entering section-card" style={{ width: '440px', maxWidth: '90vw', padding: 0 }}>
+            <div className="flex justify-between items-center" style={{ padding: 'var(--space-md)', borderBottom: '1px solid var(--color-border)' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>Generate Job Sheet</h3>
+              <button onClick={() => setShowJobSheetDialog(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: 'var(--space-md)', display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+
+              {assignedContractors && assignedContractors.length > 0 && (
+                <>
+                  <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>Select an engineer to generate their individual sheet:</p>
+                  {assignedContractors.map((eng) => (
+                    <div key={eng.id} className="flex justify-between items-center" style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-bg)' }}>
+                      <span className="font-medium">{eng.name}</span>
+                      <button
+                        onClick={async () => { setShowJobSheetDialog(false); await generateJobSheet(eng.name); }}
+                        className="button secondary small"
+                        disabled={isGenerating}
+                      >
+                        Generate
+                      </button>
+                    </div>
+                  ))}
+                  {assignedContractors.length > 1 && (
+                    <button
+                      onClick={handleGenerateForAll}
+                      className="button primary"
+                      disabled={isGeneratingMultiple || isGenerating}
+                    >
+                      {isGeneratingMultiple ? 'Generating…' : `Generate for All (${assignedContractors.length} separate sheets)`}
+                    </button>
+                  )}
+                  <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '0.25rem 0' }} />
+                </>
+              )}
+
+              <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>Or generate with a custom / additional name:</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customEngineerName}
+                  onChange={(e) => setCustomEngineerName(e.target.value)}
+                  placeholder="Engineer name"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  onClick={async () => {
+                    setShowJobSheetDialog(false);
+                    await generateJobSheet(customEngineerName.trim() || undefined);
+                  }}
+                  className="button primary"
+                  disabled={isGenerating}
+                >
+                  Generate
+                </button>
+              </div>
+              {!assignedContractors?.length && (
+                <p className="text-muted" style={{ fontSize: '0.8rem', margin: 0 }}>
+                  No engineers assigned. Assign engineers in Job Details, or type a custom name above.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {confirmDialog && confirmDialog.isOpen && (

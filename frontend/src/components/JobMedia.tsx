@@ -1,43 +1,78 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { apiFetch } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 
-interface JobMedia {
+interface JobMediaItem {
   id: string;
   jobId: string;
-  type: 'DIAGNOSTIC' | 'COMPLETION';
+  mediaType: 'DIAGNOSTIC' | 'COMPLETION';
   storageKey: string;
-  presignedUrl?: string; // Appended by the backend response
+  presignedUrl?: string;
   createdAt: string;
 }
 
+const MEDIA_LABELS: Record<string, string> = {
+  DIAGNOSTIC: 'Diagnostic',
+  COMPLETION: 'Completion',
+};
+
 export function JobMediaUpload({ jobId }: { jobId: string }) {
-  const [mediaList, setMediaList] = useState<JobMedia[]>([]);
+  const { socket } = useAuth();
+  const { showToast } = useToast();
+  const [mediaList, setMediaList] = useState<JobMediaItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [error, setError] = useState('');
   const [uploadType, setUploadType] = useState<'DIAGNOSTIC' | 'COMPLETION'>('DIAGNOSTIC');
 
-  useEffect(() => {
-    loadMedia();
-  }, [jobId]);
-
-  const loadMedia = async () => {
+  const loadMedia = useCallback(async () => {
     try {
       const response = await apiFetch(`/job-media?jobId=${jobId}`);
-      // Pagination response
-      setMediaList(response.data || []);
-    } catch (err: any) {
+      const items: JobMediaItem[] = Array.isArray(response) ? response : response.data || [];
+      const withUrls = await Promise.all(
+        items.map(async (item) => {
+          try {
+            const urlRes = await apiFetch(`/job-media/${item.id}/url`);
+            return { ...item, presignedUrl: urlRes.url };
+          } catch {
+            return item;
+          }
+        })
+      );
+      setMediaList(withUrls);
+    } catch {
       setError('Failed to load media.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [jobId]);
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (acceptedFiles.length === 0) return;
-    
+  useEffect(() => {
+    loadMedia();
+  }, [loadMedia]);
+
+  useEffect(() => {
+    if (!socket) return;
+    // Refresh the gallery when another session uploads to the same job.
+    const handleUploaded = (payload: { jobId: string }) => {
+      if (payload.jobId === jobId) loadMedia();
+    };
+    socket.on('media:uploaded', handleUploaded);
+    return () => {
+      socket.off('media:uploaded', handleUploaded);
+    };
+  }, [socket, jobId, loadMedia]);
+
+  const uploadFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    setIsUploading(true);
     setError('');
-    for (const file of acceptedFiles) {
+
+    for (const file of files) {
+      setUploadStatus(`Uploading ${file.name}…`);
       const formData = new FormData();
       formData.append('file', file);
       formData.append('mediaType', uploadType);
@@ -46,62 +81,113 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
       try {
         const token = localStorage.getItem('affinity_token');
         const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+        // Use native fetch (not apiFetch) because FormData must not have a Content-Type
+        // header set manually — the browser sets it with the correct multipart boundary.
         const res = await fetch(`${apiBase}/job-media`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
         });
 
         if (!res.ok) throw new Error('Upload failed');
         const newMedia = await res.json();
-        setMediaList(prev => [newMedia, ...prev]);
-      } catch (err: any) {
+        try {
+          const urlRes = await apiFetch(`/job-media/${newMedia.id}/url`);
+          newMedia.presignedUrl = urlRes.url;
+        } catch { /* preview optional */ }
+        setMediaList((prev) => [{ ...newMedia, mediaType: newMedia.mediaType || uploadType }, ...prev]);
+        showToast(`${file.name} uploaded`, 'success');
+      } catch {
         setError(`Failed to upload ${file.name}`);
+        showToast(`Failed to upload ${file.name}`, 'error');
       }
     }
-  }, [jobId, uploadType]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { 'image/*': [] } });
+    setUploadStatus('');
+    setIsUploading(false);
+  }, [jobId, uploadType, showToast]);
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    uploadFiles(acceptedFiles);
+  }, [uploadFiles]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      uploadFiles(imageFiles);
+    }
+  }, [uploadFiles]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'image/*': [] },
+    disabled: isUploading,
+  });
 
   return (
     <div className="section-card">
       <div className="section-card-header flex justify-between items-center" style={{ marginBottom: 'var(--space-md)' }}>
         <h3 style={{ fontSize: '1rem', margin: 0 }}>Job Media</h3>
-        <select value={uploadType} onChange={(e) => setUploadType(e.target.value as any)} style={{ padding: '0.2rem' }}>
+        <select
+          value={uploadType}
+          onChange={(e) => setUploadType(e.target.value as 'DIAGNOSTIC' | 'COMPLETION')}
+          className="segment-control"
+          style={{ padding: '0.35rem 0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}
+          disabled={isUploading}
+        >
           <option value="DIAGNOSTIC">Diagnostic Photos</option>
           <option value="COMPLETION">Completion Photos</option>
         </select>
       </div>
 
       {error && <div className="page-error">{error}</div>}
+      {uploadStatus && (
+        <p className="text-secondary" style={{ fontSize: '0.8125rem', marginBottom: 'var(--space-sm)' }}>
+          {uploadStatus}
+        </p>
+      )}
 
-      <div {...getRootProps()} className="dropzone" style={{ 
-        backgroundColor: isDragActive ? 'var(--color-bg)' : 'transparent',
-        borderColor: isDragActive ? 'var(--color-brand)' : 'var(--color-border)',
-        marginBottom: 'var(--space-md)'
-      }}>
+      <div
+        {...getRootProps()}
+        className={`dropzone${isDragActive ? ' active' : ''}${isUploading ? ' uploading' : ''}`}
+        onPaste={handlePaste}
+        tabIndex={0}
+      >
         <input {...getInputProps()} />
-        {isDragActive ? (
-          <p className="font-medium text-primary">Drop the files here ...</p>
+        {isUploading ? (
+          <p className="font-medium text-primary" style={{ margin: 0 }}>Uploading…</p>
+        ) : isDragActive ? (
+          <p className="font-medium text-primary" style={{ margin: 0 }}>Drop the files here…</p>
         ) : (
-          <p className="text-secondary" style={{ margin: 0 }}>Drag & drop some images here, or click to select files</p>
+          <p className="text-secondary" style={{ margin: 0 }}>
+            Drag & drop images here, click to select, or <strong>Ctrl+V</strong> to paste
+          </p>
         )}
       </div>
 
-      {isLoading ? <p>Loading media...</p> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--space-sm)' }}>
-          {mediaList.map(media => (
-            <div key={media.id} className="section-card" style={{ marginBottom: 0, padding: 0, overflow: 'hidden' }}>
+      {isLoading ? (
+        <p>Loading media...</p>
+      ) : (
+        <div className="media-grid">
+          {mediaList.map((media) => (
+            <div key={media.id} className="media-item">
               {media.presignedUrl ? (
-                <img src={media.presignedUrl} alt="Job Media" style={{ width: '100%', height: '120px', objectFit: 'cover' }} />
+                <img src={media.presignedUrl} alt="Job Media" />
               ) : (
-                <div className="flex items-center justify-center text-muted" style={{ width: '100%', height: '120px', background: 'var(--color-bg)' }}>No Preview</div>
+                <div className="flex items-center justify-center text-muted" style={{ width: '100%', height: '120px', background: 'var(--color-bg)' }}>
+                  No Preview
+                </div>
               )}
-              <div className="font-medium text-secondary" style={{ padding: 'var(--space-xs)', fontSize: '0.75rem', textAlign: 'center', backgroundColor: 'var(--color-bg)', borderTop: '1px solid var(--color-border)' }}>
-                {media.type}
-              </div>
+              <div className="media-item-label">{MEDIA_LABELS[media.mediaType] || media.mediaType}</div>
             </div>
           ))}
           {mediaList.length === 0 && (

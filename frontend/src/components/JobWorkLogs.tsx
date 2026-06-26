@@ -31,9 +31,11 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Groups logs by calendar date (UTC ISO date string used as key) so the table
+  // can render a date-header row with daily hour/cost totals, sorted newest-first.
   const groupedLogs = useMemo(() => {
     const groups: Record<string, { logs: WorkLog[], totalHours: number, totalCost: number }> = {};
-    
+
     workLogs.forEach(log => {
       const dateKey = new Date(log.workDate).toISOString().split('T')[0];
       if (!groups[dateKey]) {
@@ -43,8 +45,7 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
       groups[dateKey].totalHours += Number(log.hoursWorked);
       groups[dateKey].totalCost += Number(log.hoursWorked) * Number(log.rateApplied);
     });
-    
-    // Sort dates descending
+
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
   }, [workLogs]);
 
@@ -55,7 +56,7 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
 
   const loadContractors = async () => {
     try {
-      const response = await apiFetch('/users?role=CONTRACTOR');
+      const response = await apiFetch('/engineers');
       setContractors(response || []);
     } catch (err) {
       console.error('Failed to load contractors', err);
@@ -124,9 +125,9 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
   const handleCreateContractor = async (inputValue: string) => {
     setIsSubmitting(true);
     try {
-      const res = await apiFetch('/users', {
+      const res = await apiFetch('/engineers', {
         method: 'POST',
-        body: JSON.stringify({ name: inputValue, role: 'CONTRACTOR' })
+        body: JSON.stringify({ name: inputValue })
       });
       setContractors(prev => [...prev, res]);
       setContractorId(res.id);

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut, LayoutDashboard, Users, Building2, ClipboardList, Calendar, ChevronDown, Bell, Search, Hexagon, Moon, Sun, Menu } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Building2, ClipboardList, Calendar, ChevronDown, Bell, Search, Hexagon, Moon, Sun, Menu, HardHat, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export function AppShell() {
@@ -15,6 +15,8 @@ export function AppShell() {
   }, [theme]);
 
   useEffect(() => {
+    // Decode role from JWT payload (middle segment) to conditionally show admin
+    // nav links. The backend still enforces RBAC — this is display-only.
     const token = localStorage.getItem('affinity_token');
     if (token) {
       try {
@@ -54,6 +56,7 @@ export function AppShell() {
         <div style={{ padding: '0 var(--space-md) var(--space-lg) var(--space-md)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '16px', cursor: 'pointer' }}>
             <div className="flex items-center gap-3">
+              {/* TODO: replace "JD" / "John Doe" placeholder with authenticated user data from AuthContext */}
               <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#f97316', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.9rem' }}>
                 JD
               </div>
@@ -75,10 +78,17 @@ export function AppShell() {
           <NavLink to="/logistics" icon={<Calendar size={20} />} label="Logistics" />
           <NavLink to="/clients" icon={<Users size={20} />} label="Clients" />
           <NavLink to="/properties" icon={<Building2 size={20} />} label="Properties" />
+          {(userRole === 'ADMIN' || userRole === 'OWNER' || userRole === 'PM') && (
+            <>
+              <div style={{ padding: '1.5rem 1rem 0.5rem 1rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Team</div>
+              <NavLink to="/engineers" icon={<HardHat size={20} />} label="Engineers" />
+            </>
+          )}
           {(userRole === 'ADMIN' || userRole === 'OWNER') && (
             <>
               <div style={{ padding: '1.5rem 1rem 0.5rem 1rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Admin</div>
               <NavLink to="/team" icon={<Users size={20} />} label="Team Access" />
+              <NavLink to="/settings" icon={<Settings size={20} />} label="Settings" />
             </>
           )}
         </div>
