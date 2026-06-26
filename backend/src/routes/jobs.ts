@@ -51,18 +51,22 @@ router.get(
     query('propertyId').optional().isUUID(),
     query('assignedContractorId').optional().isUUID(),
     query('search').optional().isString().trim(),
+    query('startDate').optional().isISO8601().toDate(),
+    query('endDate').optional().isISO8601().toDate(),
     query('page').optional().isInt({ min: 1 }).toInt(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { status, clientId, propertyId, assignedContractorId, search } = req.query as {
+      const { status, clientId, propertyId, assignedContractorId, search, startDate, endDate } = req.query as {
         status?: JobStatus;
         clientId?: string;
         propertyId?: string;
         assignedContractorId?: string;
         search?: string;
+        startDate?: Date;
+        endDate?: Date;
       };
 
       const { page, limit, skip } = getPaginationParams(
@@ -91,6 +95,17 @@ router.get(
         orConditions.push({ client: { name: { contains: search, mode: 'insensitive' } } });
         
         where.OR = orConditions;
+      }
+
+      if (startDate || endDate) {
+        where.createdAt = {};
+        if (startDate) where.createdAt.gte = startDate;
+        if (endDate) {
+          // Push endDate to end-of-day so a same-day range (start == end) is inclusive.
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          where.createdAt.lte = end;
+        }
       }
 
       const [jobs, total] = await prisma.$transaction([
@@ -124,7 +139,7 @@ router.get(
         include: {
           property: { select: { id: true, address: true, accessNotes: true, keyLocation: true } },
           client: { select: { id: true, name: true, email: true, phone: true } },
-          assignedContractors: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true } },
           generatedDocuments: true,
         },
       });
@@ -245,7 +260,7 @@ router.post(
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
           tenant: { select: { id: true, name: true, phone: true } },
-          assignedContractors: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true } },
         },
       });
 
@@ -292,6 +307,11 @@ router.patch(
     try {
       const existing = await prisma.job.findFirst({
         where: { id: req.params['id'], deletedAt: null },
+        include: {
+          property: { select: { id: true, address: true } },
+          client: { select: { id: true, name: true } },
+          assignedContractors: { select: { id: true, name: true } },
+        },
       });
 
       if (!existing) {
@@ -324,7 +344,7 @@ router.patch(
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
-          assignedContractors: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true } },
         },
       });
 
@@ -370,7 +390,14 @@ router.patch(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { status, version } = req.body as { status: JobStatus; version: number };
-      const existing = await prisma.job.findUnique({ where: { id: req.params['id'] } });
+      const existing = await prisma.job.findUnique({
+        where: { id: req.params['id'] },
+        include: {
+          property: { select: { id: true, address: true } },
+          client: { select: { id: true, name: true } },
+          assignedContractors: { select: { id: true, name: true } },
+        },
+      });
 
       const updatedJob = await applyTransition({
         jobId: req.params['id'],

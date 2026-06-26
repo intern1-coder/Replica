@@ -55,7 +55,7 @@ router.get(
         prisma.workLog.findMany({
           where: whereClause,
           include: {
-            contractor: { select: { id: true, name: true, role: true } },
+            contractor: { select: { id: true, name: true } },
             loggedBy: { select: { id: true, name: true } },
             job: { 
               select: { 
@@ -92,7 +92,7 @@ router.get(
       const workLog = await prisma.workLog.findFirst({
         where: { id: req.params['id'], deletedAt: null },
         include: {
-          contractor: { select: { id: true, name: true, role: true, hourlyRate: true } },
+          contractor: { select: { id: true, name: true, hourlyRate: true } },
           loggedBy: { select: { id: true, name: true } },
           job: { select: { id: true, sequence: true } },
         },
@@ -158,20 +158,20 @@ router.post(
         return;
       }
 
-      // Fetch contractor and freeze their current hourly rate
-      const contractor = await prisma.user.findFirst({
+      // Fetch engineer and freeze their current hourly rate
+      const contractor = await prisma.engineer.findFirst({
         where: { id: contractorId, deletedAt: null },
         select: { id: true, hourlyRate: true, name: true },
       });
       if (!contractor) {
-        res.status(422).json({ error: 'Unprocessable Entity', message: 'Contractor not found.' });
+        res.status(422).json({ error: 'Unprocessable Entity', message: 'Engineer not found.' });
         return;
       }
-      // If an hourlyRate was provided, update the contractor's default rate
+      // If an hourlyRate was provided, update the engineer's default rate
       let rateApplied: any = contractor.hourlyRate ?? 0;
       if (providedHourlyRate !== undefined && providedHourlyRate !== null) {
         rateApplied = Number(providedHourlyRate);
-        await prisma.user.update({
+        await prisma.engineer.update({
           where: { id: contractorId },
           data: { hourlyRate: rateApplied }
         });
@@ -189,7 +189,7 @@ router.post(
           notes,
         },
         include: {
-          contractor: { select: { id: true, name: true, role: true } },
+          contractor: { select: { id: true, name: true } },
           loggedBy: { select: { id: true, name: true } },
         },
       });
@@ -249,6 +249,10 @@ router.patch(
     try {
       const existing = await prisma.workLog.findFirst({
         where: { id: req.params['id'], deletedAt: null },
+        include: {
+          contractor: { select: { id: true, name: true } },
+          loggedBy: { select: { id: true, name: true } },
+        },
       });
       if (!existing) {
         res.status(404).json({ error: 'Not Found', message: 'Work log not found.' });
@@ -274,7 +278,7 @@ router.patch(
           notes,
         },
         include: {
-          contractor: { select: { id: true, name: true, role: true } },
+          contractor: { select: { id: true, name: true } },
           loggedBy: { select: { id: true, name: true } },
         },
       });

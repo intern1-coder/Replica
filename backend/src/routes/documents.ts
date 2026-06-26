@@ -15,6 +15,7 @@ import { formatJobNumber } from '../lib/utils';
 import logger from '../lib/logger';
 import { getMediaSignedUrl } from '../services/storageService';
 import { getBase64Images } from '../services/imageEmbedder';
+import { getVatRate } from './settings';
 
 const router = Router();
 router.use(requireAuth);
@@ -25,10 +26,12 @@ const QUOTE_ALLOWED_STATUSES: JobStatus[] = [JobStatus.QUOTED, JobStatus.AUTHORI
 const JOB_SHEET_ALLOWED_STATUSES: JobStatus[] = [JobStatus.AUTHORISED, JobStatus.COMPLETED];
 const COMPLETION_ALLOWED_STATUSES: JobStatus[] = [JobStatus.COMPLETED];
 
-// Helper: upload PDF to Object Storage
+// Uploads PDF to S3-compatible object storage. Falls back to local disk when
+// credentials are absent or mocked (dev/CI environments). Returns the storage key
+// used for later signed-URL retrieval.
 async function uploadPdfToStorage(jobId: string, pdfBuffer: Buffer, docType: DocumentType): Promise<string> {
   const storageKey = `jobs/${jobId}/documents/${docType.toLowerCase()}_${crypto.randomUUID()}.pdf`;
-  
+
   // Fallback to local storage if AWS credentials are not configured
   if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId.includes('your-oci') || config.storage.accessKeyId === '') {
     const localPath = path.join(__dirname, '../../uploads', storageKey);
@@ -50,7 +53,7 @@ async function uploadPdfToStorage(jobId: string, pdfBuffer: Buffer, docType: Doc
   return storageKey;
 }
 
-// Helper: calculate VAT
+// Accepts Prisma Decimal strings or plain numbers; rate comes from getVatRate().
 function calculateVat(netValue: string | number, rate: number = 0.2): { vatAmount: string; totalWithVat: string } {
   const net = typeof netValue === 'string' ? parseFloat(netValue) : netValue;
   const vat = net * rate;
@@ -95,7 +98,9 @@ router.post(
       const diagnosticImages = await getBase64Images(job.id, 'DIAGNOSTIC');
 
       const quotedValue = job.quotedValue ? Number(job.quotedValue).toFixed(2) : '0.00';
-      const { vatAmount, totalWithVat } = calculateVat(quotedValue);
+      const vatRate = await getVatRate();
+      const { vatAmount, totalWithVat } = calculateVat(quotedValue, vatRate);
+      const vatPercent = (vatRate * 100).toString();
 
       const snapshotData = {
         jobNumber: formatJobNumber(job.sequence),
@@ -106,10 +111,10 @@ router.post(
         quotedValue,
         vatAmount,
         totalWithVat,
+        vatPercent,
         lineItems: job.quoteLineItems.map((item: any) => ({
           description: item.description,
           price: Number(item.price).toFixed(2),
-          status: item.status,
         })),
         diagnosticImages,
       };
@@ -138,7 +143,7 @@ router.post(
 
 router.post(
   '/job-sheet',
-  [body('jobId').isUUID()],
+  [body('jobId').isUUID(), body('engineerName').optional().isString().trim()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -148,7 +153,6 @@ router.post(
           property: true,
           assignedContractors: true,
           quoteLineItems: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
-          workLogs: { include: { contractor: true } },
         },
       });
 
@@ -169,10 +173,6 @@ router.post(
       // Fetch diagnostic images as base64
       const diagnosticImages = await getBase64Images(job.id, 'DIAGNOSTIC');
 
-      // Calculate estimated hours from work logs
-      const totalHours = job.workLogs.reduce((sum: number, wl: any) => sum + Number(wl.hoursWorked), 0);
-      const estimatedHours = totalHours > 0 ? `${totalHours} Hour${totalHours !== 1 ? 's' : ''}` : null;
-
       // Format scheduled date and time separately
       let scheduledDate = 'TBD';
       let scheduledTime = 'TBD';
@@ -185,14 +185,18 @@ router.post(
         });
       }
 
+      // Use provided engineerName override or fall back to assigned engineers
+      const contractorName = req.body.engineerName
+        || (job.assignedContractors && job.assignedContractors.length > 0
+          ? job.assignedContractors.map((c: any) => c.name).join(', ')
+          : 'Unassigned');
+
       const snapshotData = {
         jobNumber: formatJobNumber(job.sequence),
         scheduledDate,
         scheduledTime,
-        status: job.status.replace(/_/g, ' '),
-        contractorName: job.assignedContractors && job.assignedContractors.length > 0
-          ? job.assignedContractors.map((c: any) => c.name).join(', ')
-          : 'Unassigned',
+        status: 'AUTHORISED',
+        contractorName,
         propertyAddress: job.property?.address || 'No Property Assigned',
         tenantName: job.tenantSnapshotName || 'N/A',
         tenantPhone: job.tenantSnapshotPhone || '',
@@ -200,11 +204,9 @@ router.post(
         materials: job.materials || 'N/A',
         description: job.description || 'No description provided.',
         diagnosticNotes: job.diagnosticNotes || '',
-        estimatedHours,
         lineItems: job.quoteLineItems.map((item: any) => ({
           description: item.description,
           price: Number(item.price).toFixed(2),
-          status: item.status,
         })),
         diagnosticImages,
       };
@@ -271,7 +273,9 @@ router.post(
       const completionImages = await getBase64Images(job.id, 'COMPLETION');
 
       const quotedValue = job.quotedValue ? Number(job.quotedValue).toFixed(2) : '0.00';
-      const { vatAmount, totalWithVat } = calculateVat(quotedValue);
+      const vatRate = await getVatRate();
+      const { vatAmount, totalWithVat } = calculateVat(quotedValue, vatRate);
+      const vatPercent = (vatRate * 100).toString();
 
       // Build work logs data
       const workLogs = job.workLogs.map((wl: any) => ({
@@ -299,10 +303,10 @@ router.post(
         quotedValue,
         vatAmount,
         totalWithVat,
+        vatPercent,
         lineItems: job.quoteLineItems.map((item: any) => ({
           description: item.description,
           price: Number(item.price).toFixed(2),
-          status: item.status,
         })),
         workLogs,
         diagnosticImages,

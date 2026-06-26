@@ -23,6 +23,8 @@ import documentsRouter from './routes/documents';
 import dashboardRouter from './routes/dashboard';
 import usersRouter from './routes/users';
 import lineItemsRouter from './routes/lineItems';
+import settingsRouter from './routes/settings';
+import engineersRouter from './routes/engineers';
 
 const app = express();
 
@@ -39,6 +41,7 @@ app.use(
 );
 
 // ── Request parsing ────────────────────────────────────────────────────────────
+// 10 MB limit accommodates base64-encoded images embedded in document snapshot payloads.
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -68,8 +71,12 @@ app.use('/api/documents', documentsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/jobs/:jobId/line-items', lineItemsRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/engineers', engineersRouter);
 
 // ── Local Uploads Serving ──────────────────────────────────────────────────────
+// Only active when uploadPdfToStorage falls back to local disk (no S3 credentials).
+// In production this path is never hit — files are served via signed S3 URLs.
 import path from 'path';
 app.use('/uploads', (req, res, next) => {
   if (req.query.download === 'true') {
