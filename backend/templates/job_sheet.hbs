@@ -19,8 +19,7 @@
     .items-table th, .items-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
     .items-table th { background: #f3f4f6; color: #374151; font-weight: 600; }
     .items-table td.number { text-align: center; width: 40px; }
-    .estimate-box { border: 2px solid #047857; padding: 12px; margin-top: 15px; border-radius: 4px; }
-    .estimate-box .label { font-weight: 700; color: #047857; }
+
   </style>
 </head>
 <body>
@@ -66,13 +65,6 @@
         {{/each}}
       </tbody>
     </table>
-    {{/if}}
-
-    {{#if estimatedHours}}
-    <div class="estimate-box">
-      <span class="label">ESTIMATED TIME TO COMPLETE THE JOB:</span>
-      <span style="font-size: 14px; font-weight: 700;">{{estimatedHours}}</span>
-    </div>
     {{/if}}
 
     {{#if diagnosticNotes}}
