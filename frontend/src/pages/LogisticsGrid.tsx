@@ -45,7 +45,7 @@ export function LogisticsGrid() {
   const [isPanelVisible, setIsPanelVisible] = useState(false);
 
   useEffect(() => {
-    apiFetch('/users?role=CONTRACTOR')
+    apiFetch('/engineers')
       .then(res => setContractors(res))
       .catch(console.error);
   }, []);
@@ -68,6 +68,8 @@ export function LogisticsGrid() {
     setIsContextLoading(true);
     try {
       const logDate = new Date(log.workDate);
+      // Use UTC day boundaries so the contractor-day query returns the right window
+      // regardless of the server's local timezone.
       const dayStart = new Date(logDate);
       dayStart.setUTCHours(0, 0, 0, 0);
       const dayEnd = new Date(logDate);

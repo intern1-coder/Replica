@@ -6,6 +6,8 @@ import type { Property } from './PropertyList';
 import { ArrowLeft } from 'lucide-react';
 import { SearchableAutocomplete } from '../components/SearchableAutocomplete';
 
+// lastPropertyId / lastClientId drive the omni-directional auto-fill: selecting
+// a known tenant pre-populates their last known property and client.
 export interface Tenant {
   id: string;
   name: string;

@@ -12,7 +12,8 @@ import { JobAuditLogs } from '../components/JobAuditLogs';
 import { JobDocuments } from '../components/JobDocuments';
 import { JobEditDetails } from '../components/JobEditDetails';
 
-// Maps current status to legal next statuses
+// Client-side copy of the state machine transitions for instant UI rendering.
+// The server's jobStateMachine is authoritative — keep these in sync when adding states.
 const allowedTransitions: Record<string, string[]> = {
   TO_BE_CHECKED: ['CHECKED', 'CANCELLED'],
   CHECKED: ['QUOTED', 'CANCELLED'],
@@ -80,15 +81,16 @@ export function JobDetail() {
     try {
       const updatedJob = await apiFetch(`/jobs/${job.id}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           status: newStatus,
-          version: job.version // Send the current version for optimistic locking
+          // version is the optimistic lock token — the backend rejects with 409 if
+          // another session incremented it since we last loaded the job.
+          version: job.version,
         }),
       });
       setJob(updatedJob);
     } catch (err: any) {
       if (err.status === 409) {
-        // Optimistic locking failure!
         setConflictError(true);
       } else {
         setError(err.message || 'Failed to update status');
@@ -223,7 +225,7 @@ export function JobDetail() {
       <JobWorkLogs jobId={job.id} />
       <JobCommunications jobId={job.id} />
       <JobMediaUpload jobId={job.id} />
-      <JobDocuments jobId={job.id} jobStatus={job.status} />
+      <JobDocuments jobId={job.id} jobStatus={job.status} scheduledDate={job.scheduledDate} assignedContractors={job.assignedContractors} />
 
     </div>
   );

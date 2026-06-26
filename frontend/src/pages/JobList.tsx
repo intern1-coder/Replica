@@ -4,9 +4,12 @@ import { apiFetch } from '../utils/api';
 import type { Client } from './ClientList';
 import type { Property } from './PropertyList';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness } from 'lucide-react';
+import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness, Calendar } from 'lucide-react';
 import { motion } from 'motion/react';
 
+// Shared across JobDetail, JobEditDetails, and JobDocuments — exported from here
+// to avoid circular imports. tenantSnapshot* fields are frozen at job creation
+// and never updated even if the tenant record changes.
 export interface Job {
   id: string;
   sequence: number;
@@ -18,11 +21,13 @@ export interface Job {
   quotedValue: number | null;
   tenantSnapshotName: string | null;
   tenantSnapshotPhone: string | null;
-  version: number;
+  version: number; // optimistic locking token — increment triggers 409 on stale writes
   createdAt: string;
   client?: Client;
   property?: Property;
   assignedContractors?: { id: string; name: string }[];
+  scheduledDate?: string | null;
+  updatedAt?: string;
 }
 
 export function JobList() {
@@ -33,12 +38,14 @@ export function JobList() {
   
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     loadJobs();
-  }, [statusFilter, searchQuery, page]);
+  }, [statusFilter, searchQuery, startDate, endDate, page]);
 
   useEffect(() => {
     if (!socket) return;
@@ -55,6 +62,8 @@ export function JobList() {
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
       if (searchQuery) params.append('search', searchQuery);
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
       params.append('page', page.toString());
       
       const response = await apiFetch(`/jobs?${params.toString()}`);
@@ -116,6 +125,15 @@ export function JobList() {
             value={searchQuery}
             onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
           />
+        </div>
+        <div className="flex items-center gap-2">
+          <Calendar size={16} className="text-muted" />
+          <label className="form-label" style={{ margin: 0 }}>From:</label>
+          <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="form-label" style={{ margin: 0 }}>To:</label>
+          <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="form-label" style={{ margin: 0 }}>Filter by Status:</label>
@@ -219,7 +237,7 @@ export function JobList() {
                   </div>
                   <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No jobs found</p>
                   <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
-                    {searchQuery || statusFilter ? "Try adjusting your filters." : "Create a job to get started."}
+                    {searchQuery || statusFilter || startDate || endDate ? "Try adjusting your filters." : "Create a job to get started."}
                   </p>
                 </div>
               </motion.li>

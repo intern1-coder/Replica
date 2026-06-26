@@ -25,6 +25,8 @@ export function Dashboard() {
         ]);
         
         const jobs = jobsRes.data || [];
+        // Active count is derived client-side from the first 50 jobs — accurate
+        // enough for the overview card but will undercount if total jobs > 50.
         const activeJobs = jobs.filter((j: any) => j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
         
         setStats({

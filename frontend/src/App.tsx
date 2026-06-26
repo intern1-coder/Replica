@@ -1,6 +1,7 @@
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { AppShell } from './components/AppShell';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
@@ -11,10 +12,13 @@ import { JobDetail } from './pages/JobDetail';
 import { JobCreate } from './pages/JobCreate';
 import { LogisticsGrid } from './pages/LogisticsGrid';
 import { UsersList } from './pages/UsersList';
+import { AdminSettings } from './pages/AdminSettings';
+import { Engineers } from './pages/Engineers';
 
 function App() {
   return (
     <AuthProvider>
+      <ToastProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -28,11 +32,14 @@ function App() {
             <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/logistics" element={<LogisticsGrid />} />
             <Route path="/team" element={<UsersList />} />
+            <Route path="/engineers" element={<Engineers />} />
+            <Route path="/settings" element={<AdminSettings />} />
           </Route>
           
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
+      </ToastProvider>
     </AuthProvider>
   );
 }
