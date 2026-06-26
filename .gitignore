@@ -19,6 +19,7 @@ backend/uploads/
 
 # IDE / Editor
 .cursor/
+.claude/
 .vscode/
 *.swp
 *.swo
