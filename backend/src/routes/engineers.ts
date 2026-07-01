@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, param } from 'express-validator';
 import { Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { validate } from '../middleware/errorHandler';
 import { logAudit } from '../services/auditService';
 
@@ -24,6 +24,7 @@ router.get(
         where: { deletedAt: null },
         select: { id: true, name: true, phone: true, email: true, hourlyRate: true },
         orderBy: { name: 'asc' },
+        take: 200,
       });
       res.json(engineers);
     } catch (err) {
@@ -36,7 +37,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('engineers:create'),
   [
     body('name').isString().trim().notEmpty().withMessage('Name is required.'),
     body('phone').optional({ nullable: true }).isString().trim(),
@@ -77,7 +78,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('engineers:edit'),
   [
     param('id').isUUID(),
     body('name').optional().isString().trim().notEmpty(),
@@ -130,7 +131,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('engineers:delete'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

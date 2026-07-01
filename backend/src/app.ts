@@ -25,6 +25,7 @@ import usersRouter from './routes/users';
 import lineItemsRouter from './routes/lineItems';
 import settingsRouter from './routes/settings';
 import engineersRouter from './routes/engineers';
+import remindersRouter from './routes/reminders';
 
 const app = express();
 
@@ -52,6 +53,15 @@ app.use(
   })
 );
 
+// ── Request timeout ────────────────────────────────────────────────────────────
+// Abort any request that takes longer than 30 seconds to prevent hung workers.
+app.use((req, res, next) => {
+  res.setTimeout(30_000, () => {
+    res.status(503).json({ error: 'Service Unavailable', message: 'Request timed out.' });
+  });
+  next();
+});
+
 // ── Global rate limiter ────────────────────────────────────────────────────────
 app.use(globalLimiter);
 
@@ -73,6 +83,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/jobs/:jobId/line-items', lineItemsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/engineers', engineersRouter);
+app.use('/api/reminders', remindersRouter);
 
 // ── Local Uploads Serving ──────────────────────────────────────────────────────
 // Only active when uploadPdfToStorage falls back to local disk (no S3 credentials).

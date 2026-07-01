@@ -55,20 +55,6 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
     loadDocs();
   }, [jobId]);
 
-  useEffect(() => {
-    if (!isLoading) {
-      const docStates = (['QUOTE', 'JOB_SHEET', 'COMPLETION_REPORT'] as const).map((type) => ({
-        type,
-        allowed: isDocAllowed(type),
-        locked: !isDocAllowed(type),
-      }));
-      // ⚠️  DEBUG ARTIFACT — remove before shipping to production.
-      // This fetch silently POSTs UI state to a local agent-log server (127.0.0.1:7743).
-      // It was left in by a code-generation tool and has no effect in prod (port not open),
-      // but it is dead weight and may surface in security audits.
-    }
-  }, [jobStatus, scheduledDate, isGenerating, isLoading, docs.length]);
-
   const loadDocs = async () => {
     try {
       const jobData = await apiFetch(`/jobs/${jobId}`);

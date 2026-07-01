@@ -3,6 +3,7 @@ import Handlebars from 'handlebars';
 import path from 'path';
 import fs from 'fs/promises';
 import config from '../config';
+import logger from '../lib/logger';
 
 const templatesDir = path.join(__dirname, '../../templates');
 const partialsDir = path.join(templatesDir, 'partials');
@@ -75,7 +76,7 @@ export async function generatePdf(templateName: string, data: any): Promise<Buff
       await browser.close();
     }
   } catch (err) {
-    console.error('Puppeteer failed to launch or generate PDF (likely missing Chrome/executablePath). Generating dummy fallback PDF:', err);
+    logger.error('Puppeteer failed to launch or generate PDF (likely missing Chrome/executablePath). Generating dummy fallback PDF.', { error: err instanceof Error ? err.message : String(err) });
     // Return a very basic dummy PDF file header so it doesn't crash the server during local testing
     return Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n4 0 obj\n<< /Length 53 >>\nstream\nBT\n/F1 24 Tf\n100 700 Td\n(Mock PDF Generated) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000289 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n393\n%%EOF\n');
   }
