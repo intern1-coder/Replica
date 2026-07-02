@@ -3,13 +3,13 @@ import { param, query } from 'express-validator';
 import { Role } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { getPaginationParams, paginate } from '../lib/utils';
 
 const router = Router();
 router.use(requireAuth);
-// Only Admin, Owner, and PM can view audit logs.
-router.use(requireRole(Role.ADMIN, Role.OWNER, Role.PM));
+// Audit trail visibility is permission-gated (audit:view).
+router.use(requirePermission('audit:view'));
 
 // ── GET /api/audit-logs ────────────────────────────────────────────────────────
 // Retrieve audit logs globally or filtered by entity/job.

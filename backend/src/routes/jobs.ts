@@ -3,11 +3,12 @@ import { body, param, query } from 'express-validator';
 import { JobStatus, Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { applyTransition, getAllowedTransitions } from '../services/jobStateMachine';
 import { getPaginationParams, paginate, formatJobNumber } from '../lib/utils';
 import { logAudit } from '../services/auditService';
 import logger from '../lib/logger';
+import { emitToAll, emitToJob } from '../lib/socket';
 
 const router = Router();
 router.use(requireAuth);
@@ -51,18 +52,22 @@ router.get(
     query('propertyId').optional().isUUID(),
     query('assignedContractorId').optional().isUUID(),
     query('search').optional().isString().trim(),
+    query('startDate').optional().isISO8601().toDate(),
+    query('endDate').optional().isISO8601().toDate(),
     query('page').optional().isInt({ min: 1 }).toInt(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { status, clientId, propertyId, assignedContractorId, search } = req.query as {
+      const { status, clientId, propertyId, assignedContractorId, search, startDate, endDate } = req.query as {
         status?: JobStatus;
         clientId?: string;
         propertyId?: string;
         assignedContractorId?: string;
         search?: string;
+        startDate?: Date;
+        endDate?: Date;
       };
 
       const { page, limit, skip } = getPaginationParams(
@@ -91,6 +96,17 @@ router.get(
         orConditions.push({ client: { name: { contains: search, mode: 'insensitive' } } });
         
         where.OR = orConditions;
+      }
+
+      if (startDate || endDate) {
+        where.createdAt = {};
+        if (startDate) where.createdAt.gte = startDate;
+        if (endDate) {
+          // Push endDate to end-of-day so a same-day range (start == end) is inclusive.
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          where.createdAt.lte = end;
+        }
       }
 
       const [jobs, total] = await prisma.$transaction([
@@ -124,7 +140,7 @@ router.get(
         include: {
           property: { select: { id: true, address: true, accessNotes: true, keyLocation: true } },
           client: { select: { id: true, name: true, email: true, phone: true } },
-          assignedContractors: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true } },
           generatedDocuments: true,
         },
       });
@@ -150,7 +166,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('jobs:create'),
   [
     body('propertyId').isUUID().withMessage('propertyId must be a valid UUID.'),
     body('clientId').isUUID().withMessage('clientId must be a valid UUID.'),
@@ -245,7 +261,7 @@ router.post(
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
           tenant: { select: { id: true, name: true, phone: true } },
-          assignedContractors: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true } },
         },
       });
 
@@ -257,6 +273,8 @@ router.post(
         after: job as any,
         jobId: job.id,
       });
+
+      emitToAll('job:created', { jobId: job.id, ts: new Date().toISOString() });
 
       res.status(201).json({
         ...withJobNumber(job),
@@ -275,7 +293,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('jobs:edit'),
   [
     param('id').isUUID(),
     body('description').optional({ nullable: true }).isString().trim(),
@@ -292,6 +310,11 @@ router.patch(
     try {
       const existing = await prisma.job.findFirst({
         where: { id: req.params['id'], deletedAt: null },
+        include: {
+          property: { select: { id: true, address: true } },
+          client: { select: { id: true, name: true } },
+          assignedContractors: { select: { id: true, name: true } },
+        },
       });
 
       if (!existing) {
@@ -324,7 +347,7 @@ router.patch(
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
-          assignedContractors: { select: { id: true, name: true, role: true } },
+          assignedContractors: { select: { id: true, name: true } },
         },
       });
 
@@ -336,6 +359,23 @@ router.patch(
         before: existing as any,
         after: updated as any,
         jobId: updated.id,
+      });
+
+      emitToJob(updated.id, 'job:updated', {
+        jobId: updated.id,
+        actorId: req.user!.id,
+        job: {
+          description: updated.description,
+          diagnosticNotes: updated.diagnosticNotes,
+          completionNotes: updated.completionNotes,
+          materials: updated.materials,
+          quotedValue: updated.quotedValue,
+          scheduledDate: updated.scheduledDate,
+          assignedContractors: updated.assignedContractors,
+          version: updated.version,
+          updatedAt: updated.updatedAt,
+        },
+        ts: new Date().toISOString(),
       });
 
       res.json({
@@ -356,7 +396,7 @@ router.patch(
 
 router.patch(
   '/:id/status',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('jobs:edit'),
   [
     param('id').isUUID(),
     body('status')
@@ -370,7 +410,14 @@ router.patch(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { status, version } = req.body as { status: JobStatus; version: number };
-      const existing = await prisma.job.findUnique({ where: { id: req.params['id'] } });
+      const existing = await prisma.job.findUnique({
+        where: { id: req.params['id'] },
+        include: {
+          property: { select: { id: true, address: true } },
+          client: { select: { id: true, name: true } },
+          assignedContractors: { select: { id: true, name: true } },
+        },
+      });
 
       const updatedJob = await applyTransition({
         jobId: req.params['id'],
@@ -403,7 +450,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('jobs:delete'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -432,6 +479,7 @@ router.delete(
       });
 
       logger.info('Job deleted', { jobId: req.params['id'], deletedById: req.user!.id });
+      emitToAll('job:deleted', { jobId: req.params['id'], ts: new Date().toISOString() });
       res.status(204).send();
     } catch (err) {
       next(err);

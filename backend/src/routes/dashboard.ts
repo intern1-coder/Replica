@@ -46,6 +46,7 @@ router.get(
         where: { status: 'TO_BE_CHECKED', deletedAt: null },
         include: { property: { select: { address: true } } },
         orderBy: { createdAt: 'desc' },
+        take: 50,
       });
 
       res.json({

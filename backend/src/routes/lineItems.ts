@@ -3,12 +3,13 @@ import { body, param } from 'express-validator';
 import { Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { logAudit } from '../services/auditService';
+import { emitToJob } from '../lib/socket';
 
 const router = Router({ mergeParams: true }); // Allows accessing :jobId from parent router if mounted that way
 router.use(requireAuth);
-router.use(requireRole(Role.PM, Role.ADMIN, Role.OWNER));
+router.use(requirePermission('lineitems:view'));
 
 // Helper: Recalculates and updates the total quoted value for a job
 async function updateJobTotal(jobId: string, tx: any = prisma) {
@@ -44,6 +45,7 @@ router.get(
 // ── POST /api/jobs/:jobId/line-items ─────────────────────────────────────────
 router.post(
   '/',
+  requirePermission('lineitems:create'),
   [
     param('jobId').isUUID(),
     body('description').isString().notEmpty().trim(),
@@ -84,6 +86,7 @@ router.post(
         jobId,
       });
 
+      emitToJob(jobId, 'lineItems:changed', { jobId, actorId: req.user!.id, lineItem: item, ts: new Date().toISOString() });
       res.status(201).json(item);
     } catch (err) {
       next(err);
@@ -94,6 +97,7 @@ router.post(
 // ── PATCH /api/jobs/:jobId/line-items/:id ────────────────────────────────────
 router.patch(
   '/:id',
+  requirePermission('lineitems:edit'),
   [
     param('jobId').isUUID(),
     param('id').isUUID(),
@@ -138,6 +142,7 @@ router.patch(
         jobId,
       });
 
+      emitToJob(jobId, 'lineItems:changed', { jobId, actorId: req.user!.id, lineItem: updated, ts: new Date().toISOString() });
       res.json(updated);
     } catch (err) {
       next(err);
@@ -148,6 +153,7 @@ router.patch(
 // ── DELETE /api/jobs/:jobId/line-items/:id ───────────────────────────────────
 router.delete(
   '/:id',
+  requirePermission('lineitems:delete'),
   [param('jobId').isUUID(), param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -179,6 +185,7 @@ router.delete(
         jobId,
       });
 
+      emitToJob(jobId, 'lineItems:changed', { jobId, actorId: req.user!.id, deletedLineItemId: id, ts: new Date().toISOString() });
       res.status(204).send();
     } catch (err) {
       next(err);

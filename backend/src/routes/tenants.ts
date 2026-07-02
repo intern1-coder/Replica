@@ -3,7 +3,7 @@ import { body, param, query } from 'express-validator';
 import { Role } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { fuzzySearch } from '../services/searchService';
 import { getPaginationParams, paginate } from '../lib/utils';
 
@@ -82,7 +82,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('tenants:create'),
   [
     body('name').isString().trim().notEmpty().isLength({ max: 255 })
       .withMessage('name is required.'),
@@ -190,7 +190,7 @@ router.get(
 
 router.patch(
   '/:id',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('tenants:edit'),
   [
     param('id').isUUID(),
     body('name').optional().isString().trim().notEmpty().isLength({ max: 255 }),
@@ -255,7 +255,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('tenants:delete'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

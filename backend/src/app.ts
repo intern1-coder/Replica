@@ -4,8 +4,9 @@ import cors from 'cors';
 import morgan from 'morgan';
 import config from './config';
 import { morganStream } from './lib/logger';
-import { globalLimiter } from './middleware/rateLimiter';
+import { globalLimiter, searchLimiter } from './middleware/rateLimiter';
 import { errorHandler } from './middleware/errorHandler';
+import { requestId } from './middleware/requestId';
 
 // Route modules
 import healthRouter from './routes/health';
@@ -23,6 +24,9 @@ import documentsRouter from './routes/documents';
 import dashboardRouter from './routes/dashboard';
 import usersRouter from './routes/users';
 import lineItemsRouter from './routes/lineItems';
+import settingsRouter from './routes/settings';
+import engineersRouter from './routes/engineers';
+import remindersRouter from './routes/reminders';
 
 const app = express();
 
@@ -39,18 +43,43 @@ app.use(
 );
 
 // ── Request parsing ────────────────────────────────────────────────────────────
+// 10 MB limit accommodates base64-encoded images embedded in document snapshot payloads.
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ── HTTP request logging (Morgan → Winston) ────────────────────────────────────
-app.use(
-  morgan(config.env === 'production' ? 'combined' : 'dev', {
-    stream: morganStream,
-  })
-);
+// ── Request correlation id (before logging so it can be included) ──────────────
+app.use(requestId);
 
-// ── Global rate limiter ────────────────────────────────────────────────────────
-app.use(globalLimiter);
+// ── HTTP request logging (Morgan → Winston) ────────────────────────────────────
+// Custom tokens: `path` logs req.path WITHOUT the query string, so search terms
+// (e.g. /api/clients?q=<name>) never reach the logs; `id` is the correlation id.
+morgan.token('path', (req) => (req as express.Request).path);
+morgan.token('id', (req) => (req as express.Request).id ?? '-');
+
+// Production: structured, no query string, includes request id. Dev: concise.
+const morganFormat = config.env === 'production'
+  ? ':remote-addr :method :path :status :res[content-length] - :response-time ms :id'
+  : ':method :path :status :response-time ms';
+
+app.use(morgan(morganFormat, { stream: morganStream }));
+
+// ── Request timeout ────────────────────────────────────────────────────────────
+// Abort any request that takes longer than 30 seconds to prevent hung workers.
+app.use((req, res, next) => {
+  res.setTimeout(30_000, () => {
+    res.status(503).json({ error: 'Service Unavailable', message: 'Request timed out.' });
+  });
+  next();
+});
+
+// ── Rate limiters ──────────────────────────────────────────────────────────────
+// Search routes get a dedicated higher-ceiling limiter so search-as-you-type
+// doesn't eat into the global budget for mutations and other API calls.
+app.use('/api/clients', searchLimiter);
+app.use('/api/properties', searchLimiter);
+app.use('/api/tenants', searchLimiter);
+app.use('/api/jobs', searchLimiter);
+app.use(globalLimiter); // skips GET ?q= / ?search= requests (handled above)
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.use('/api/health', healthRouter);
@@ -68,10 +97,16 @@ app.use('/api/documents', documentsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/jobs/:jobId/line-items', lineItemsRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/engineers', engineersRouter);
+app.use('/api/reminders', remindersRouter);
 
 // ── Local Uploads Serving ──────────────────────────────────────────────────────
+// Only active when uploadPdfToStorage falls back to local disk (no S3 credentials).
+// In production this path is never hit — files are served via signed S3 URLs.
 import path from 'path';
 app.use('/uploads', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   if (req.query.download === 'true') {
     res.setHeader('Content-Disposition', 'attachment');
   }

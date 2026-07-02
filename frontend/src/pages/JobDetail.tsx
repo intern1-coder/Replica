@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
+import { mergeJobPatch, type FetchOptions } from '../utils/refetch';
 import type { Job } from './JobList';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,7 +13,6 @@ import { JobAuditLogs } from '../components/JobAuditLogs';
 import { JobDocuments } from '../components/JobDocuments';
 import { JobEditDetails } from '../components/JobEditDetails';
 
-// Maps current status to legal next statuses
 const allowedTransitions: Record<string, string[]> = {
   TO_BE_CHECKED: ['CHECKED', 'CANCELLED'],
   CHECKED: ['QUOTED', 'CANCELLED'],
@@ -22,54 +22,93 @@ const allowedTransitions: Record<string, string[]> = {
   CANCELLED: []
 };
 
+type JobUpdatedPayload = {
+  jobId: string;
+  actorId?: string;
+  job?: Partial<Job>;
+  ts?: string;
+};
+
 export function JobDetail() {
   const { id } = useParams();
-  const { socket } = useAuth();
+  const { socket, can, user } = useAuth();
   const [job, setJob] = useState<Job | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [error, setError] = useState('');
-  
-  // Transition State
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [conflictError, setConflictError] = useState(false);
+  const conflictErrorRef = useRef(conflictError);
+  conflictErrorRef.current = conflictError;
 
-  useEffect(() => {
-    loadJob();
+  const loadJob = useCallback(async (options?: FetchOptions) => {
+    const background = options?.background ?? false;
+    if (!background) {
+      setIsInitialLoading(true);
+      setConflictError(false);
+      setError('');
+    }
+    try {
+      const data = await apiFetch(`/jobs/${id}`);
+      if (background) {
+        setJob((prev) => mergeJobPatch(prev, data as Partial<Job>));
+      } else {
+        setJob(data);
+      }
+    } catch (err: any) {
+      if (!background) {
+        setError(err.message || 'Failed to load job');
+      }
+    } finally {
+      if (!background) {
+        setIsInitialLoading(false);
+      }
+    }
   }, [id]);
 
-  // Socket.io Realtime Updates
+  const loadJobRef = useRef(loadJob);
+  loadJobRef.current = loadJob;
+
+  useEffect(() => {
+    setJob(null);
+    loadJobRef.current();
+  }, [id]);
+
   useEffect(() => {
     if (!socket || !id) return;
 
-    const handleStatusChanged = (payload: { jobId: string }) => {
-      if (payload.jobId === id) {
-        // If this specific job changed, prompt a refresh or auto-refresh
-        // Auto-refresh is cleaner for read-only observers, but if we are editing, we might want to warn.
-        // We'll just auto-refresh the data.
-        loadJob();
+    socket.emit('job:join', id);
+
+    const handleStatusChanged = (payload: { jobId: string; status: Job['status']; version: number }) => {
+      if (payload.jobId !== id) return;
+      if (conflictErrorRef.current) {
+        loadJobRef.current({ background: true });
+        return;
       }
+      setJob((prev) =>
+        prev
+          ? mergeJobPatch(prev, { status: payload.status, version: payload.version })
+          : prev
+      );
+    };
+
+    const handleJobUpdated = (payload: JobUpdatedPayload) => {
+      if (payload.jobId !== id || payload.actorId === user?.id) return;
+      if (payload.job) {
+        setJob((prev) => mergeJobPatch(prev, payload.job!));
+        return;
+      }
+      loadJobRef.current({ background: true });
     };
 
     socket.on('job:statusChanged', handleStatusChanged);
-    
+    socket.on('job:updated', handleJobUpdated);
+
     return () => {
       socket.off('job:statusChanged', handleStatusChanged);
+      socket.off('job:updated', handleJobUpdated);
+      socket.emit('job:leave', id);
     };
-  }, [socket, id]);
-
-  const loadJob = async () => {
-    setIsLoading(true);
-    setConflictError(false);
-    setError('');
-    try {
-      const data = await apiFetch(`/jobs/${id}`);
-      setJob(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load job');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [socket, id, user?.id]);
 
   const handleStatusChange = async (newStatus: string) => {
     if (!job) return;
@@ -80,15 +119,14 @@ export function JobDetail() {
     try {
       const updatedJob = await apiFetch(`/jobs/${job.id}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           status: newStatus,
-          version: job.version // Send the current version for optimistic locking
+          version: job.version,
         }),
       });
       setJob(updatedJob);
     } catch (err: any) {
       if (err.status === 409) {
-        // Optimistic locking failure!
         setConflictError(true);
       } else {
         setError(err.message || 'Failed to update status');
@@ -98,7 +136,7 @@ export function JobDetail() {
     }
   };
 
-  if (isLoading) return <p>Loading job details...</p>;
+  if (isInitialLoading && !job) return <p>Loading job details...</p>;
   if (error && !job) return <p className="text-secondary">{error}</p>;
   if (!job) return <p>Job not found</p>;
 
@@ -118,7 +156,7 @@ export function JobDetail() {
             <div>
               <strong>Update Conflict:</strong> Another user has modified this job since you opened it.
             </div>
-            <button onClick={loadJob} className="button secondary">
+            <button onClick={() => loadJob()} className="button secondary">
               <RefreshCw size={16} /> Refresh Data
             </button>
           </div>
@@ -131,7 +169,6 @@ export function JobDetail() {
         </div>
       )}
 
-      {/* Header */}
       <div className="section-card flex justify-between items-center" style={{ flexWrap: 'wrap', gap: 'var(--space-md)' }}>
         <div>
           <h2 className="flex items-center gap-2" style={{ margin: 0, marginBottom: 'var(--space-xs)' }}>
@@ -144,28 +181,16 @@ export function JobDetail() {
             {job.property?.address}
           </p>
         </div>
-        
-        {/* Status Transition Controls */}
+
         {availableTransitions.length > 0 && (
           <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
             {availableTransitions.map(nextStatus => {
-              // Hide AUTHORISED button if not Admin/Owner and lacking canAuthorizeJobs
-              if (nextStatus === 'AUTHORISED') {
-                const token = localStorage.getItem('affinity_token');
-                let hasAuthPerm = false;
-                if (token) {
-                  try {
-                    const payload = JSON.parse(atob(token.split('.')[1]));
-                    if (payload.role === 'ADMIN' || payload.role === 'OWNER' || payload.canAuthorizeJobs) {
-                      hasAuthPerm = true;
-                    }
-                  } catch (e) {}
-                }
-                if (!hasAuthPerm) return null;
+              if (nextStatus === 'AUTHORISED' && !can('jobs:authorize')) {
+                return null;
               }
 
               return (
-                <button 
+                <button
                   key={nextStatus}
                   onClick={() => handleStatusChange(nextStatus)}
                   disabled={isUpdatingStatus || conflictError}
@@ -179,25 +204,23 @@ export function JobDetail() {
         )}
       </div>
 
-      {/* Job Timeline (Audit Logs) */}
       <JobAuditLogs jobId={job.id} />
 
-      {/* Detail Grid */}
       <div className="detail-grid" style={{ marginBottom: 'var(--space-xl)' }}>
         <div className="section-card" style={{ marginBottom: 0 }}>
           <div className="section-card-header">
             <h3 style={{ fontSize: '1rem', margin: 0 }}>Client Information</h3>
           </div>
           <div className="form-row">
-            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span> 
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span>
             <span className="font-medium">{job.client?.name}</span>
           </div>
           <div className="form-row" style={{ marginTop: 'var(--space-xs)' }}>
-            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Email:</span> 
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Email:</span>
             <span className="font-medium">{job.client?.email || 'N/A'}</span>
           </div>
           <div className="form-row" style={{ marginTop: 'var(--space-xs)' }}>
-            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Phone:</span> 
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Phone:</span>
             <span className="font-medium">{job.client?.phone || 'N/A'}</span>
           </div>
         </div>
@@ -207,24 +230,23 @@ export function JobDetail() {
             <h3 style={{ fontSize: '1rem', margin: 0 }}>Tenant Information (Snapshot)</h3>
           </div>
           <div className="form-row">
-            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span> 
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span>
             <span className="font-medium">{job.tenantSnapshotName || 'N/A'}</span>
           </div>
           <div className="form-row" style={{ marginTop: 'var(--space-xs)' }}>
-            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Phone:</span> 
+            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Phone:</span>
             <span className="font-medium">{job.tenantSnapshotPhone || 'N/A'}</span>
           </div>
         </div>
       </div>
-      
-      <JobEditDetails job={job} onUpdated={loadJob} />
+
+      <JobEditDetails job={job} onUpdated={() => loadJob({ background: true })} />
 
       <JobPnL jobId={job.id} />
       <JobWorkLogs jobId={job.id} />
       <JobCommunications jobId={job.id} />
       <JobMediaUpload jobId={job.id} />
-      <JobDocuments jobId={job.id} jobStatus={job.status} />
-
+      <JobDocuments jobId={job.id} jobStatus={job.status} scheduledDate={job.scheduledDate} assignedContractors={job.assignedContractors} />
     </div>
   );
 }

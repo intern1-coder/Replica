@@ -1,30 +1,39 @@
 import { useState, useEffect, useMemo } from 'react';
 import { apiFetch } from '../utils/api';
-import { Search, Plus, Home, MapPin, User, Building2, CornerDownRight } from 'lucide-react';
+import { Search, Plus, Home, MapPin, User, Building2, CornerDownRight, Edit } from 'lucide-react';
 import { SearchableAutocomplete } from '../components/SearchableAutocomplete';
 import type { Client } from './ClientList';
 import { motion, AnimatePresence } from 'motion/react';
+import { useToast } from '../contexts/ToastContext';
 
 export interface Property {
   id: string;
   address: string;
+  // parentId enables HMO-style grouping: a parent block contains multiple sub-unit
+  // flats. A property with a parentId is a sub-unit; one without is a standalone or block.
   parentId: string | null;
   parent?: { id: string; address: string };
   subUnits?: { id: string; address: string }[];
   currentClientId: string | null;
   currentClient?: { id: string; name: string; phone?: string | null; email?: string | null };
   lastTenants?: { id: string; name: string; phone: string | null; email: string | null }[];
+  accessNotes?: string | null;
+  keyLocation?: string | null;
   createdAt: string;
 }
 
 export function PropertyList() {
+  const { showToast } = useToast();
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const [address, setAddress] = useState('');
+  const [accessNotes, setAccessNotes] = useState('');
+  const [keyLocation, setKeyLocation] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [selectedParent, setSelectedParent] = useState<Property | null>(null);
   const [error, setError] = useState('');
@@ -45,6 +54,37 @@ export function PropertyList() {
     }
   };
 
+  const resetForm = () => {
+    setAddress('');
+    setAccessNotes('');
+    setKeyLocation('');
+    setSelectedClient(null);
+    setSelectedParent(null);
+    setEditingId(null);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setIsFormOpen(true);
+  };
+
+  const openEdit = async (p: Property) => {
+    setIsFormOpen(false);
+    setEditingId(p.id);
+    setError('');
+    try {
+      const full = await apiFetch(`/properties/${p.id}`);
+      setAddress(full.address);
+      setAccessNotes(full.accessNotes || '');
+      setKeyLocation(full.keyLocation || '');
+      setSelectedClient(full.currentClient ? { id: full.currentClient.id, name: full.currentClient.name } as Client : null);
+      setSelectedParent(full.parent ? { id: full.parent.id, address: full.parent.address } as Property : null);
+    } catch (err: any) {
+      setError('Failed to load property: ' + err.message);
+      setEditingId(null);
+    }
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -59,12 +99,38 @@ export function PropertyList() {
         }),
       });
       setProperties([newProperty, ...properties]);
-      setAddress('');
-      setSelectedClient(null);
-      setSelectedParent(null);
+      resetForm();
       setIsFormOpen(false);
+      showToast('Property created', 'success');
     } catch (err: any) {
       setError(err.message || 'Validation failed.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingId) return;
+    setIsSubmitting(true);
+    setError('');
+    try {
+      const updated = await apiFetch(`/properties/${editingId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          address,
+          accessNotes: accessNotes.trim() || null,
+          keyLocation: keyLocation.trim() || null,
+          currentClientId: selectedClient ? selectedClient.id : null,
+          parentId: selectedParent ? selectedParent.id : null,
+        }),
+      });
+      setProperties(properties.map((p) => (p.id === editingId ? { ...p, ...updated } : p)));
+      resetForm();
+      showToast('Property updated', 'success');
+    } catch (err: any) {
+      setError(err.message || 'Validation failed.');
+      showToast(err.message || 'Failed to update property', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -118,11 +184,18 @@ export function PropertyList() {
           
           <motion.button 
             className="button primary" 
-            onClick={() => setIsFormOpen(!isFormOpen)}
+            onClick={() => {
+              if (isFormOpen || editingId) {
+                resetForm();
+                setIsFormOpen(false);
+              } else {
+                openCreate();
+              }
+            }}
             whileTap={{ scale: 0.97 }}
             transition={{ type: "spring", duration: 0.4, bounce: 0.2 }}
           >
-            <Plus size={18} /> {isFormOpen ? 'Cancel' : 'Add Property'}
+            <Plus size={18} /> {isFormOpen || editingId ? 'Cancel' : 'Add Property'}
           </motion.button>
         </div>
       </div>
@@ -130,7 +203,7 @@ export function PropertyList() {
       {error && <div className="page-error">{error}</div>}
 
       <AnimatePresence>
-        {isFormOpen && (
+        {(isFormOpen || editingId) && (
           <motion.div 
             initial={{ opacity: 0, height: 0, overflow: 'hidden' }}
             animate={{ opacity: 1, height: 'auto', overflow: 'visible' }}
@@ -139,9 +212,9 @@ export function PropertyList() {
             className="section-card"
           >
             <div className="section-card-header">
-              <h3 style={{ fontSize: '1.125rem' }}>Create New Property</h3>
+              <h3 style={{ fontSize: '1.125rem' }}>{editingId ? 'Edit Property' : 'Create New Property'}</h3>
             </div>
-            <form onSubmit={handleCreate} className="form-section">
+            <form onSubmit={editingId ? handleUpdate : handleCreate} className="form-section">
               <div className="detail-grid">
                 <div className="form-row">
                   <label className="form-label">Full Address *</label>
@@ -186,6 +259,16 @@ export function PropertyList() {
                     onSelect={setSelectedParent}
                   />
                 </div>
+
+                <div className="form-row">
+                  <label className="form-label">Access Notes</label>
+                  <textarea value={accessNotes} onChange={e => setAccessNotes(e.target.value)} rows={2} placeholder="Gate codes, entry instructions..." />
+                </div>
+
+                <div className="form-row">
+                  <label className="form-label">Key Location</label>
+                  <input type="text" value={keyLocation} onChange={e => setKeyLocation(e.target.value)} placeholder="E.g. Under mat, lockbox code 1234" />
+                </div>
               </div>
               
               <div className="form-actions">
@@ -195,7 +278,7 @@ export function PropertyList() {
                   disabled={isSubmitting}
                   whileTap={{ scale: 0.97 }}
                 >
-                  {isSubmitting ? 'Saving...' : 'Save Property'}
+                  {isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Save Property'}
                 </motion.button>
               </div>
             </form>
@@ -210,7 +293,7 @@ export function PropertyList() {
           {/* List Header */}
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '2fr 1.5fr 1.5fr', 
+            gridTemplateColumns: '2fr 1.5fr 1.5fr 0.75fr', 
             gap: 'var(--space-md)', 
             padding: 'var(--space-md) var(--space-xl)', 
             borderBottom: '1px solid var(--color-border)',
@@ -221,6 +304,7 @@ export function PropertyList() {
             <div>Address</div>
             <div>Current Tenants</div>
             <div>Assigned Client</div>
+            <div style={{ textAlign: 'right' }}>Action</div>
           </div>
 
           <motion.ul 
@@ -236,7 +320,7 @@ export function PropertyList() {
                   variants={listItem}
                   style={{ 
                     display: 'grid', 
-                    gridTemplateColumns: '2fr 1.5fr 1.5fr', 
+                    gridTemplateColumns: '2fr 1.5fr 1.5fr 0.75fr', 
                     gap: 'var(--space-md)', 
                     padding: 'var(--space-md) var(--space-xl)', 
                     borderBottom: '1px solid var(--color-border)',
@@ -298,6 +382,17 @@ export function PropertyList() {
                     ) : (
                       <span className="text-muted" style={{ fontSize: '0.875rem', fontStyle: 'italic' }}>Unassigned</span>
                     )}
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <motion.button
+                      className="button secondary small flex items-center gap-2"
+                      onClick={() => openEdit(p)}
+                      whileTap={{ scale: 0.95 }}
+                      style={{ display: 'inline-flex' }}
+                    >
+                      <Edit size={14} /> Edit
+                    </motion.button>
                   </div>
                 </motion.li>
               ))

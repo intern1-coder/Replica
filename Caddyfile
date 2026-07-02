@@ -1,0 +1,36 @@
+{$DOMAIN} {
+	# Gzip compression
+	encode gzip
+
+	# Security headers
+	header {
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Proxy WebSocket and Socket.IO to backend
+	handle /socket.io/* {
+		import /app/active-upstream.caddy
+	}
+
+	# Proxy API requests to backend
+	handle /api/* {
+		import /app/active-upstream.caddy
+	}
+
+	# Local media fallback (dev/staging only — production uses OCI signed URLs)
+	handle /uploads/* {
+		import /app/active-upstream.caddy
+	}
+
+	# Serve frontend SPA — fallback to index.html for client-side routing
+	handle {
+		root * /app/frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Auto-HTTPS via Let's Encrypt (Caddy default)
+}

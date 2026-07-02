@@ -3,6 +3,11 @@ import jwt from 'jsonwebtoken';
 import config from '../config';
 import prisma from '../lib/prisma';
 import { Role } from '@prisma/client';
+import {
+  getEffectivePermissions,
+  sanitizeOverrides,
+  type PermissionKey,
+} from '../lib/permissions';
 
 // ── requireAuth ────────────────────────────────────────────────────────────────
 
@@ -45,7 +50,15 @@ export async function requireAuth(
   // must not be accepted after deactivation.
   const user = await prisma.user.findFirst({
     where: { id: payload['userId'] as string, deletedAt: null },
-    select: { id: true, email: true, name: true, role: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      canAuthorizeJobs: true,
+      permissionOverrides: true,
+      tokenVersion: true,
+    },
   });
 
   if (!user) {
@@ -56,7 +69,29 @@ export async function requireAuth(
     return;
   }
 
-  req.user = user;
+  if ((payload['tokenVersion'] as number) !== user.tokenVersion) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Session expired. Please log in again.',
+    });
+    return;
+  }
+
+  const permissions = getEffectivePermissions(
+    user.role,
+    sanitizeOverrides(user.permissionOverrides),
+    user.canAuthorizeJobs
+  );
+
+  req.user = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    canAuthorizeJobs: user.canAuthorizeJobs,
+    permissions,
+    can: (key: PermissionKey) => !!permissions[key],
+  };
   next();
 }
 
@@ -78,6 +113,32 @@ export function requireRole(...roles: Role[]) {
       res.status(403).json({
         error: 'Forbidden',
         message: `This action requires one of the following roles: ${roles.join(', ')}.`,
+      });
+      return;
+    }
+    next();
+  };
+}
+
+// ── requirePermission ────────────────────────────────────────────────────────
+
+/**
+ * Granular permission guard. Use after requireAuth. The member's effective
+ * permissions are resolved from their role preset + per-member overrides.
+ *
+ * @example
+ *   router.patch('/jobs/:id', requireAuth, requirePermission('jobs:edit'), handler);
+ */
+export function requirePermission(key: PermissionKey) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized', message: 'Authentication required.' });
+      return;
+    }
+    if (!req.user.can(key)) {
+      res.status(403).json({
+        error: 'Forbidden',
+        message: 'You do not have permission to perform this action.',
       });
       return;
     }

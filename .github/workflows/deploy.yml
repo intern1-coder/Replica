@@ -1,0 +1,64 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy"
+        required: false
+        default: "latest"
+      environment:
+        description: "Target environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+
+jobs:
+  preflight:
+    name: Pre-deploy checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: TypeScript build check
+        working-directory: backend
+        run: npm run build
+
+      - name: PII-in-logs check
+        working-directory: backend
+        run: npm run check:log-pii
+
+  deploy:
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            export GHCR_OWNER=${{ github.repository_owner }}
+            export DATABASE_URL=$(grep DATABASE_URL /app/backend/.env | cut -d'=' -f2-)
+            /app/scripts/deploy.sh ${{ github.event.inputs.image_tag }}

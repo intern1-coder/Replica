@@ -3,10 +3,10 @@ import { body, param, query } from 'express-validator';
 import { MediaType, Role } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { upload, uploadMedia } from '../services/mediaService';
-import { getMediaSignedUrl, deleteMediaFromStorage } from '../services/storageService';
-import { emitMediaUploaded } from '../lib/socket';
+import { getMediaSignedUrl, deleteMediaFromStorage, usesLocalStorage } from '../services/storageService';
+import { emitToJob } from '../lib/socket';
 import logger from '../lib/logger';
 
 const router = Router();
@@ -18,7 +18,7 @@ router.use(requireAuth);
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('media:upload'),
   // multer must run before express-validator so req.body is populated
   upload.single('file'),
   [
@@ -72,7 +72,18 @@ router.post(
         uploadedById: req.user!.id,
       });
 
-      emitMediaUploaded(jobId);
+      emitToJob(jobId, 'media:uploaded', {
+        jobId,
+        actorId: req.user!.id,
+        media: {
+          id: media.id,
+          jobId: media.jobId,
+          mediaType: media.mediaType,
+          storageKey: media.storageKey,
+          createdAt: media.createdAt,
+        },
+        ts: new Date().toISOString(),
+      });
       res.status(201).json(media);
     } catch (err) {
       next(err);
@@ -97,6 +108,7 @@ router.get(
           uploadedBy: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
+        take: 100,
       });
 
       res.json(media);
@@ -147,7 +159,7 @@ router.get(
 
 router.delete(
   '/:id',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('media:delete'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -162,13 +174,18 @@ router.delete(
         return;
       }
 
-      // Delete from Object Storage first — if this fails, the DB row is preserved
+      // Delete from storage first — if this fails, the DB row is preserved
       // so the admin can retry. The reverse (DB deleted, storage not) is unrecoverable.
       await deleteMediaFromStorage(media.storageKey);
 
       await prisma.jobMedia.delete({ where: { id: req.params['id'] } });
 
-      logger.info('Media deleted', { mediaId: media.id, storageKey: media.storageKey });
+      logger.info('Media deleted', {
+        mediaId: media.id,
+        storageKey: media.storageKey,
+        localStorage: usesLocalStorage(),
+      });
+      emitToJob(media.jobId, 'media:deleted', { jobId: media.jobId, mediaId: req.params['id'], ts: new Date().toISOString() });
       res.status(204).send();
     } catch (err) {
       next(err);

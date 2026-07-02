@@ -3,9 +3,9 @@ import { body, param, query } from 'express-validator';
 import { Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { getPaginationParams, paginate } from '../lib/utils';
-import { emitWorkLogCreated } from '../lib/socket';
+import { emitToJob } from '../lib/socket';
 import { logAudit } from '../services/auditService';
 import logger from '../lib/logger';
 
@@ -55,7 +55,7 @@ router.get(
         prisma.workLog.findMany({
           where: whereClause,
           include: {
-            contractor: { select: { id: true, name: true, role: true } },
+            contractor: { select: { id: true, name: true } },
             loggedBy: { select: { id: true, name: true } },
             job: { 
               select: { 
@@ -92,7 +92,7 @@ router.get(
       const workLog = await prisma.workLog.findFirst({
         where: { id: req.params['id'], deletedAt: null },
         include: {
-          contractor: { select: { id: true, name: true, role: true, hourlyRate: true } },
+          contractor: { select: { id: true, name: true, hourlyRate: true } },
           loggedBy: { select: { id: true, name: true } },
           job: { select: { id: true, sequence: true } },
         },
@@ -117,7 +117,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('worklogs:create'),
   [
     body('jobId').isUUID().withMessage('jobId is required.'),
     body('contractorId').isUUID().withMessage('contractorId is required.'),
@@ -158,20 +158,20 @@ router.post(
         return;
       }
 
-      // Fetch contractor and freeze their current hourly rate
-      const contractor = await prisma.user.findFirst({
+      // Fetch engineer and freeze their current hourly rate
+      const contractor = await prisma.engineer.findFirst({
         where: { id: contractorId, deletedAt: null },
         select: { id: true, hourlyRate: true, name: true },
       });
       if (!contractor) {
-        res.status(422).json({ error: 'Unprocessable Entity', message: 'Contractor not found.' });
+        res.status(422).json({ error: 'Unprocessable Entity', message: 'Engineer not found.' });
         return;
       }
-      // If an hourlyRate was provided, update the contractor's default rate
+      // If an hourlyRate was provided, update the engineer's default rate
       let rateApplied: any = contractor.hourlyRate ?? 0;
       if (providedHourlyRate !== undefined && providedHourlyRate !== null) {
         rateApplied = Number(providedHourlyRate);
-        await prisma.user.update({
+        await prisma.engineer.update({
           where: { id: contractorId },
           data: { hourlyRate: rateApplied }
         });
@@ -189,7 +189,7 @@ router.post(
           notes,
         },
         include: {
-          contractor: { select: { id: true, name: true, role: true } },
+          contractor: { select: { id: true, name: true } },
           loggedBy: { select: { id: true, name: true } },
         },
       });
@@ -212,7 +212,12 @@ router.post(
       });
 
       // Notify connected clients that P&L has changed for this job
-      emitWorkLogCreated(jobId);
+      emitToJob(jobId, 'workLog:created', {
+        jobId,
+        actorId: req.user!.id,
+        workLog,
+        ts: new Date().toISOString(),
+      });
 
       res.status(201).json(workLog);
     } catch (err) {
@@ -227,7 +232,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('worklogs:edit'),
   [
     param('id').isUUID(),
     body('hoursWorked')
@@ -249,6 +254,10 @@ router.patch(
     try {
       const existing = await prisma.workLog.findFirst({
         where: { id: req.params['id'], deletedAt: null },
+        include: {
+          contractor: { select: { id: true, name: true } },
+          loggedBy: { select: { id: true, name: true } },
+        },
       });
       if (!existing) {
         res.status(404).json({ error: 'Not Found', message: 'Work log not found.' });
@@ -274,7 +283,7 @@ router.patch(
           notes,
         },
         include: {
-          contractor: { select: { id: true, name: true, role: true } },
+          contractor: { select: { id: true, name: true } },
           loggedBy: { select: { id: true, name: true } },
         },
       });
@@ -289,7 +298,7 @@ router.patch(
         jobId: updated.jobId,
       });
 
-      emitWorkLogCreated(existing.jobId); // P&L changed — signal consumers to refresh
+      emitToJob(existing.jobId, 'workLog:created', { jobId: existing.jobId, actorId: req.user!.id, ts: new Date().toISOString() }); // P&L changed — signal consumers to refresh
       res.json(updated);
     } catch (err) {
       next(err);
@@ -303,7 +312,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('worklogs:delete'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -330,7 +339,7 @@ router.delete(
         jobId: existing.jobId,
       });
 
-      emitWorkLogCreated(existing.jobId); // P&L changed
+      emitToJob(existing.jobId, 'workLog:created', { jobId: existing.jobId, actorId: req.user!.id, ts: new Date().toISOString() }); // P&L changed
       res.status(204).send();
     } catch (err) {
       next(err);

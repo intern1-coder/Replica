@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
+import { debounce, mergeById, type FetchOptions } from '../utils/refetch';
 import type { Client } from './ClientList';
 import type { Property } from './PropertyList';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness } from 'lucide-react';
+import { useReminders } from '../contexts/ReminderContext';
+import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness, Calendar } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export interface Job {
@@ -23,6 +25,8 @@ export interface Job {
   client?: Client;
   property?: Property;
   assignedContractors?: { id: string; name: string }[];
+  scheduledDate?: string | null;
+  updatedAt?: string;
 }
 
 export function JobList() {
@@ -30,44 +34,97 @@ export function JobList() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const { socket } = useAuth();
-  
+  const { byJobId } = useReminders();
+  const [listAnimated, setListAnimated] = useState(false);
+
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
-    loadJobs();
-  }, [statusFilter, searchQuery, page]);
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-  useEffect(() => {
-    if (!socket) return;
-    const handleStatusChanged = () => loadJobs();
-    socket.on('job:statusChanged', handleStatusChanged);
-    return () => {
-      socket.off('job:statusChanged', handleStatusChanged);
-    };
-  }, [socket, statusFilter]);
-
-  const loadJobs = async () => {
-    setIsLoading(true);
+  const loadJobs = useCallback(async (options?: FetchOptions) => {
+    const background = options?.background ?? false;
+    if (!background) {
+      setIsLoading(true);
+    }
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
-      if (searchQuery) params.append('search', searchQuery);
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
       params.append('page', page.toString());
-      
+
       const response = await apiFetch(`/jobs?${params.toString()}`);
-      setJobs(response.data || []);
+      const nextJobs: Job[] = response.data || [];
+      if (background) {
+        setJobs((prev) => mergeById(prev, nextJobs));
+      } else {
+        setJobs(nextJobs);
+      }
       if (response.meta) {
         setTotalPages(response.meta.totalPages || 1);
       }
+      setListAnimated(true);
     } catch (err: any) {
-      setError('Failed to load jobs: ' + err.message);
+      if (!background) {
+        setError('Failed to load jobs: ' + err.message);
+      }
     } finally {
-      setIsLoading(false);
+      if (!background) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [statusFilter, debouncedSearch, startDate, endDate, page]);
+
+  const loadJobsRef = useRef(loadJobs);
+  loadJobsRef.current = loadJobs;
+
+  const debouncedBackgroundLoad = useMemo(
+    () => debounce(() => loadJobsRef.current({ background: true }), 300),
+    []
+  );
+
+  useEffect(() => {
+    loadJobs();
+  }, [loadJobs]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleStatusChanged = (payload: { jobId: string; status: Job['status']; version: number }) => {
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === payload.jobId
+            ? { ...j, status: payload.status, version: payload.version }
+            : j
+        )
+      );
+    };
+
+    const handleJobCreated = () => debouncedBackgroundLoad();
+
+    const handleJobDeleted = (payload: { jobId: string }) => {
+      setJobs((prev) => prev.filter((j) => j.id !== payload.jobId));
+    };
+
+    socket.on('job:statusChanged', handleStatusChanged);
+    socket.on('job:created', handleJobCreated);
+    socket.on('job:deleted', handleJobDeleted);
+    return () => {
+      socket.off('job:statusChanged', handleStatusChanged);
+      socket.off('job:created', handleJobCreated);
+      socket.off('job:deleted', handleJobDeleted);
+    };
+  }, [socket, debouncedBackgroundLoad]);
 
   const listContainer: any = {
     hidden: { opacity: 0 },
@@ -82,19 +139,21 @@ export function JobList() {
     show: { opacity: 1, y: 0, transition: { type: 'spring', duration: 0.4, bounce: 0 } }
   };
 
+  const showInitialLoading = isLoading && jobs.length === 0;
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
       <div className="page-header">
         <div className="page-header-title">
           <h1 className="flex items-center gap-3">
-            <BriefcaseBusiness size={28} className="text-brand" style={{ color: 'var(--color-brand)' }} /> 
+            <BriefcaseBusiness size={28} className="text-brand" style={{ color: 'var(--color-brand)' }} />
             Jobs
           </h1>
           <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>View and manage maintenance jobs.</p>
         </div>
-        
+
         <Link to="/jobs/new" style={{ textDecoration: 'none' }}>
-          <motion.button 
+          <motion.button
             className="button primary"
             whileTap={{ scale: 0.97 }}
             transition={{ type: "spring", duration: 0.4, bounce: 0.2 }}
@@ -109,13 +168,22 @@ export function JobList() {
       <div className="filter-bar">
         <div className="search-input-wrapper">
           <Search size={18} />
-          <input 
-            type="text" 
+          <input
+            type="text"
             className="search-input"
-            placeholder="Search by Job #, Address, or Client..." 
+            placeholder="Search by Job #, Address, or Client..."
             value={searchQuery}
             onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
           />
+        </div>
+        <div className="flex items-center gap-2">
+          <Calendar size={16} className="text-muted" />
+          <label className="form-label" style={{ margin: 0 }}>From:</label>
+          <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="form-label" style={{ margin: 0 }}>To:</label>
+          <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="form-label" style={{ margin: 0 }}>Filter by Status:</label>
@@ -131,16 +199,15 @@ export function JobList() {
         </div>
       </div>
 
-      {isLoading ? (
+      {showInitialLoading ? (
         <div className="text-secondary" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading jobs...</div>
       ) : (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-          {/* List Header */}
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: '1fr 1.5fr 2fr 2fr 1.5fr 1fr', 
-            gap: 'var(--space-md)', 
-            padding: 'var(--space-md) var(--space-xl)', 
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1.5fr 2fr 2fr 1.5fr 1fr',
+            gap: 'var(--space-md)',
+            padding: 'var(--space-md) var(--space-xl)',
             borderBottom: '1px solid var(--color-border)',
             color: 'var(--color-text-secondary)',
             fontSize: '0.8125rem',
@@ -154,22 +221,22 @@ export function JobList() {
             <div style={{ textAlign: 'right' }}>Action</div>
           </div>
 
-          <motion.ul 
+          <motion.ul
             variants={listContainer}
-            initial="hidden"
+            initial={listAnimated ? false : 'hidden'}
             animate="show"
             style={{ listStyle: 'none', padding: 0, margin: 0 }}
           >
             {jobs.length > 0 ? (
               jobs.map((j) => (
-                <motion.li 
-                  key={j.id} 
+                <motion.li
+                  key={j.id}
                   variants={listItem}
-                  style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: '1fr 1.5fr 2fr 2fr 1.5fr 1fr', 
-                    gap: 'var(--space-md)', 
-                    padding: 'var(--space-md) var(--space-xl)', 
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1.5fr 2fr 2fr 1.5fr 1fr',
+                    gap: 'var(--space-md)',
+                    padding: 'var(--space-md) var(--space-xl)',
                     borderBottom: '1px solid var(--color-border)',
                     alignItems: 'center',
                     transition: 'background-color 150ms ease-out'
@@ -182,25 +249,41 @@ export function JobList() {
                       #{j.sequence}
                     </Link>
                   </div>
-                  <div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <span className={`status-badge ${j.status.toLowerCase()}`}>
                       {j.status.replace(/_/g, ' ')}
                     </span>
+                    {byJobId[j.id] && byJobId[j.id].length > 0 && (() => {
+                      const isOverdue = byJobId[j.id].some(r => new Date(r.dueAt) < new Date());
+                      return (
+                        <span style={{
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          padding: '2px 7px',
+                          borderRadius: 6,
+                          backgroundColor: isOverdue ? 'var(--color-error)' : 'var(--color-warning)',
+                          color: '#fff',
+                          display: 'inline-block',
+                        }}>
+                          {isOverdue ? '⚠ Follow-up overdue' : '🔔 Follow-up due'}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
                     <MapPin size={16} className="text-muted" />
-                    {j.property?.address || `Property #${j.propertyId.toString().substring(0,8)}`}
+                    {j.property?.address || `Property #${j.propertyId.toString().substring(0, 8)}`}
                   </div>
                   <div className="flex items-center gap-2 text-secondary" style={{ fontSize: '0.9375rem' }}>
                     <User size={16} className="text-muted" />
-                    {j.client?.name || `Client #${j.clientId.toString().substring(0,8)}`}
+                    {j.client?.name || `Client #${j.clientId.toString().substring(0, 8)}`}
                   </div>
                   <div className="tabular-nums text-muted" style={{ fontSize: '0.875rem' }}>
                     {new Date(j.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <Link to={`/jobs/${j.id}`} style={{ textDecoration: 'none' }}>
-                      <motion.button 
+                      <motion.button
                         className="button secondary small"
                         whileTap={{ scale: 0.95 }}
                         transition={{ type: "spring", duration: 0.3 }}
@@ -219,7 +302,7 @@ export function JobList() {
                   </div>
                   <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No jobs found</p>
                   <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
-                    {searchQuery || statusFilter ? "Try adjusting your filters." : "Create a job to get started."}
+                    {searchQuery || statusFilter || startDate || endDate ? "Try adjusting your filters." : "Create a job to get started."}
                   </p>
                 </div>
               </motion.li>
@@ -228,18 +311,18 @@ export function JobList() {
 
           {totalPages > 1 && (
             <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', borderTop: '1px solid var(--color-border)' }}>
-              <motion.button 
-                className="button secondary" 
-                disabled={page <= 1} 
+              <motion.button
+                className="button secondary"
+                disabled={page <= 1}
                 onClick={() => setPage(p => p - 1)}
                 whileTap={{ scale: 0.97 }}
               >
                 Previous
               </motion.button>
               <span className="text-secondary" style={{ fontSize: '0.875rem' }}>Page {page} of {totalPages}</span>
-              <motion.button 
-                className="button secondary" 
-                disabled={page >= totalPages} 
+              <motion.button
+                className="button secondary"
+                disabled={page >= totalPages}
                 onClick={() => setPage(p => p + 1)}
                 whileTap={{ scale: 0.97 }}
               >

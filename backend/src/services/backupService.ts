@@ -7,6 +7,7 @@ import { PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aw
 import s3 from '../lib/s3';
 import config from '../config';
 import logger from '../lib/logger';
+import { sendBackupFailureAlert } from './emailService';
 
 const execAsync = util.promisify(exec);
 
@@ -18,7 +19,14 @@ export function startBackupCron() {
       await runBackup();
       await cleanupOldBackups();
     } catch (err) {
-      logger.error('Database backup failed', { error: err });
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Database backup failed', { error: message });
+      // Send email alert so ops is notified even if no one is watching logs.
+      sendBackupFailureAlert(message).catch((mailErr) => {
+        logger.warn('Failed to send backup failure alert email', {
+          error: mailErr instanceof Error ? mailErr.message : String(mailErr),
+        });
+      });
     }
   });
 

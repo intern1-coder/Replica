@@ -27,6 +27,13 @@ const config = {
     appUrl: (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, ''),
   },
 
+  // Public frontend URL — used to build links emailed to users (password reset).
+  frontendUrl: (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, ''),
+
+  passwordReset: {
+    expiresMinutes: parseInt(process.env.PASSWORD_RESET_EXPIRES_MINUTES || '30', 10),
+  },
+
   email: {
     host: requireEnv('SMTP_HOST'),
     port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -57,6 +64,22 @@ const config = {
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
   },
 } as const;
+
+// ── Production transport safety ──────────────────────────────────────────────────
+// resetUrl/magicUrl are built from frontendUrl (FRONTEND_URL) and
+// magicLink.appUrl (APP_URL) and emailed to users. In production these MUST be
+// https, otherwise one-time login/reset tokens would travel over plaintext.
+// Fail fast at startup rather than silently emailing insecure links.
+if (config.env === 'production') {
+  for (const [name, value] of [
+    ['FRONTEND_URL', config.frontendUrl],
+    ['APP_URL', config.magicLink.appUrl],
+  ] as const) {
+    if (!value.startsWith('https://')) {
+      throw new Error(`${name} must use https:// in production (got: ${value})`);
+    }
+  }
+}
 
 export type Config = typeof config;
 export default config;
