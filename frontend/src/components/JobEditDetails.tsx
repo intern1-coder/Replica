@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../utils/api';
+import { mergeById, type FetchOptions } from '../utils/refetch';
 import type { Job } from '../pages/JobList';
 import CreatableSelect from 'react-select/creatable';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface QuoteLineItem {
   id: string;
@@ -21,6 +23,24 @@ function parseScheduledLocal(iso?: string | null) {
   return { date, time };
 }
 
+function contractorsEqual(
+  a: { id: string; name: string }[] | undefined,
+  b: { id: string; name: string }[] | undefined
+): boolean {
+  const left = a ?? [];
+  const right = b ?? [];
+  if (left.length !== right.length) return false;
+  return left.every((c, i) => c.id === right[i]?.id && c.name === right[i]?.name);
+}
+
+function jobFormFieldsEqual(a: Job, b: Job): boolean {
+  return (
+    (a.description || '') === (b.description || '') &&
+    (a.materials || '') === (b.materials || '') &&
+    (a.scheduledDate ?? null) === (b.scheduledDate ?? null) &&
+    contractorsEqual(a.assignedContractors, b.assignedContractors)
+  );
+}
 function formatScheduledDisplay(iso?: string | null) {
   if (!iso) return { dateLabel: 'TBD', timeLabel: 'TBD' };
   const d = new Date(iso);
@@ -32,6 +52,7 @@ function formatScheduledDisplay(iso?: string | null) {
 
 export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => void }) {
   const { showToast } = useToast();
+  const { socket, user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -50,6 +71,8 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
   const [deletedLineItemIds, setDeletedLineItemIds] = useState<string[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(true);
 
+  const jobFormSnapshot = useRef(job);
+
   const resetFormFromJob = useCallback((j: Job) => {
     const { date, time } = parseScheduledLocal(j.scheduledDate);
     setScheduledDate(date);
@@ -60,33 +83,72 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
     setDeletedLineItemIds([]);
   }, []);
 
-  useEffect(() => {
-    loadLineItems();
+  const loadLineItems = useCallback(async (options?: FetchOptions) => {
+    const background = options?.background ?? false;
+    if (!background) {
+      setIsLoadingItems(true);
+    }
+    try {
+      const res = await apiFetch(`/jobs/${job.id}/line-items`);
+      setLineItems((prev) => mergeById(prev, res || []));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      if (!background) {
+        setIsLoadingItems(false);
+      }
+    }
   }, [job.id]);
 
+  const loadLineItemsRef = useRef(loadLineItems);
+  loadLineItemsRef.current = loadLineItems;
+
   useEffect(() => {
-    if (!isEditing) {
-      resetFormFromJob(job);
-    }
-  }, [job.id, job.scheduledDate, job.updatedAt, isEditing, resetFormFromJob, job]);
+    loadLineItems();
+  }, [loadLineItems]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: {
+      jobId: string;
+      actorId?: string;
+      lineItems?: QuoteLineItem[];
+      lineItem?: QuoteLineItem;
+      deletedLineItemId?: string;
+    }) => {
+      if (payload.jobId !== job.id) return;
+      if (payload.actorId === user?.id) return;
+      if (isEditing) return;
+      if (payload.lineItems) {
+        setLineItems((prev) => mergeById(prev, payload.lineItems!));
+        return;
+      }
+      if (payload.lineItem) {
+        setLineItems((prev) => mergeById(prev, [payload.lineItem!]));
+        return;
+      }
+      if (payload.deletedLineItemId) {
+        setLineItems((prev) => prev.filter((item) => item.id !== payload.deletedLineItemId));
+        return;
+      }
+      loadLineItemsRef.current({ background: true });
+    };
+    socket.on('lineItems:changed', handler);
+    return () => { socket.off('lineItems:changed', handler); };
+  }, [socket, job.id, user?.id, isEditing]);
+
+  useEffect(() => {
+    if (isEditing) return;
+    if (jobFormFieldsEqual(jobFormSnapshot.current, job)) return;
+    jobFormSnapshot.current = job;
+    resetFormFromJob(job);
+  }, [job, isEditing, resetFormFromJob]);
 
   useEffect(() => {
     if (isEditing) {
       loadContractors();
     }
   }, [isEditing]);
-
-  const loadLineItems = async () => {
-    setIsLoadingItems(true);
-    try {
-      const res = await apiFetch(`/jobs/${job.id}/line-items`);
-      setLineItems(res || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
 
   const loadContractors = async () => {
     try {

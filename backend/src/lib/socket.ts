@@ -42,6 +42,17 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     const userId = (socket.data['user'] as { userId?: string })?.userId;
     logger.info('Socket connected', { socketId: socket.id, userId });
 
+    if (userId) {
+      socket.join(`user:${userId}`);
+    }
+
+    socket.on('job:join', (jobId: string) => {
+      socket.join(`job:${jobId}`);
+    });
+    socket.on('job:leave', (jobId: string) => {
+      socket.leave(`job:${jobId}`);
+    });
+
     socket.on('disconnect', (reason) => {
       logger.info('Socket disconnected', { socketId: socket.id, userId, reason });
     });
@@ -60,9 +71,51 @@ export function getIO(): SocketIOServer {
   return io;
 }
 
+// ── Generic emitters ──────────────────────────────────────────────────────────
+
+/**
+ * Broadcast an event to all connected clients.
+ */
+export function emitToAll(event: string, payload: object): void {
+  if (!io) return;
+  io.emit(event, payload);
+}
+
+/**
+ * Emit an event only to clients that have joined the room for a specific job.
+ */
+export function emitToJob(jobId: string, event: string, payload: object): void {
+  if (!io) return;
+  io.to(`job:${jobId}`).emit(event, payload);
+}
+
+/**
+ * Emit an event only to sockets belonging to a specific user.
+ */
+export function emitToUser(userId: string, event: string, payload: object): void {
+  if (!io) return;
+  io.to(`user:${userId}`).emit(event, payload);
+}
+
 // ── Typed event emitters ───────────────────────────────────────────────────────
 // All realtime events go through these functions so event names and shapes
 // remain consistent and can be diffed against the frontend in one place.
+//
+// Room-scoped payloads (emitToJob) commonly include:
+// - workLog:created     → { jobId, actorId, workLog, ts }
+// - communicationLog:created → { jobId, actorId, log, reminder?, ts }
+// - job:updated         → { jobId, actorId, job: { description, materials, ... }, ts }
+// - lineItems:changed   → { jobId, actorId, lineItem?, deletedLineItemId?, ts }
+// - media:uploaded      → { jobId, actorId, media: { id, jobId, mediaType, storageKey, createdAt }, ts }
+//
+// Global payloads include:
+// - job:statusChanged   → { jobId, status, version, ts }
+// - job:created         → { jobId, ts }
+// - job:deleted         → { jobId, ts }
+// - reminder:changed    → { jobId, ts }
+//
+// User-scoped payloads (emitToUser):
+// - user:permissionsChanged → { userId, actorId?, ts }
 
 /**
  * Broadcast when a job's status changes.
@@ -105,5 +158,28 @@ export function emitCommunicationLogged(jobId: string): void {
 export function emitMediaUploaded(jobId: string): void {
   try {
     getIO().emit('media:uploaded', { jobId, ts: Date.now() });
+  } catch { /* silent */ }
+}
+
+/**
+ * Broadcast when a follow-up reminder is created, resolved, or snoozed.
+ */
+export function emitReminderChanged(jobId: string): void {
+  try {
+    getIO().emit('reminder:changed', { jobId, ts: Date.now() });
+  } catch { /* silent */ }
+}
+
+/**
+ * Notify a member that their role or permission overrides changed.
+ * Delivered only to that user's connected sessions.
+ */
+export function emitUserPermissionsChanged(userId: string, actorId?: string): void {
+  try {
+    emitToUser(userId, 'user:permissionsChanged', {
+      userId,
+      actorId,
+      ts: Date.now(),
+    });
   } catch { /* silent */ }
 }

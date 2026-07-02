@@ -83,8 +83,13 @@ model User {
   hourlyRate         Decimal?  @db.Decimal(10, 2)
 
   passwordHash       String?
+  tokenVersion       Int       @default(0)
 
   canAuthorizeJobs   Boolean   @default(false)
+
+  // Sparse per-member permission overrides on top of the role preset.
+  // Shape: { "jobs:edit": false, "audit:view": true }
+  permissionOverrides Json?
 
   deletedAt          DateTime?
   createdAt          DateTime  @default(now())
@@ -93,12 +98,34 @@ model User {
   loggedWorkLogs           WorkLog[]          @relation("LoggedWorkLogs")
   uploadedMedia            JobMedia[]         @relation("UploadedMedia")
   performedCommunications  CommunicationLog[] @relation("PerformedCommunications")
-  
+  createdReminders         FollowUpReminder[] @relation("CreatedReminders")
+  resolvedReminders        FollowUpReminder[] @relation("ResolvedReminders")
+
   auditLogsPerformed       AuditLog[]         @relation("AuditLogsPerformed")
   documentsGenerated       GeneratedDocument[] @relation("DocumentsGenerated")
+  passwordResetTokens      PasswordResetToken[] @relation("UserResetTokens")
 
   @@map("users")
   @@index([email])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PasswordResetToken — single-use, expiring tokens for self-service reset.
+// Only the SHA-256 hash of the token is stored; the raw token is emailed once.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation("UserResetTokens", fields: [userId], references: [id])
+
+  @@map("password_reset_tokens")
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -254,6 +281,7 @@ model Job {
   quoteLineItems    JobQuoteLineItem[]
   media             JobMedia[]
   communicationLogs CommunicationLog[]
+  followUpReminders FollowUpReminder[]
   auditLogs         AuditLog[]
   generatedDocuments GeneratedDocument[]
 
@@ -345,6 +373,45 @@ model CommunicationLog {
   @@map("communication_logs")
   @@index([jobId])
   @@index([performedById])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FollowUpReminder
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ReminderStatus {
+  OPEN
+  DONE
+  DISMISSED
+}
+
+model FollowUpReminder {
+  id                       String         @id @default(uuid())
+
+  jobId                    String
+  job                      Job            @relation(fields: [jobId], references: [id])
+
+  createdById              String
+  createdBy                User           @relation("CreatedReminders", fields: [createdById], references: [id])
+
+  resolvedById             String?
+  resolvedBy               User?          @relation("ResolvedReminders", fields: [resolvedById], references: [id])
+
+  sourceCommunicationLogId String?        // comm log that spawned this reminder (context only)
+
+  dueAt                    DateTime
+  note                     String?
+  status                   ReminderStatus @default(OPEN)
+  resolvedAt               DateTime?
+  resolvedReason           String?        // "Follow-up logged" | "Marked done" | "Dismissed"
+  notifiedAt               DateTime?      // last time browser push fired — set by client via PATCH
+
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+
+  @@map("follow_up_reminders")
+  @@index([jobId])
+  @@index([status, dueAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

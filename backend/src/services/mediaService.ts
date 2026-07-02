@@ -6,6 +6,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import s3 from '../lib/s3';
 import config from '../config';
+import { usesLocalStorage } from './storageService';
 
 // ── MIME types ─────────────────────────────────────────────────────────────────
 const ALLOWED_MIME_TYPES = new Set([
@@ -98,7 +99,7 @@ export async function uploadMedia(
   const storageKey = `jobs/${jobId}/media/${crypto.randomUUID()}.${ext}`;
 
   // Fallback to local storage if AWS credentials are not configured
-  if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId.includes('your-oci') || config.storage.accessKeyId === '') {
+  if (usesLocalStorage()) {
     const localPath = path.join(__dirname, '../../uploads', storageKey);
     await fs.mkdir(path.dirname(localPath), { recursive: true });
     await fs.writeFile(localPath, buffer);

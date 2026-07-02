@@ -163,3 +163,42 @@ WorkLog `logAudit` calls pass `jobId`, which means those entries appear in the p
 ```bash
 grep -rn "jobId" backend/src/routes/ | grep "logAudit\|before:\|after:"
 ```
+
+---
+
+## 9. Misleading profile affordance hides Logout
+
+**Where it happened:** `frontend/src/components/AppShell.tsx`
+
+**What went wrong:**
+The sidebar showed a profile card with user name, avatar, and a `ChevronDown` icon — but the card was a static `<div>` with no click handler. New users assumed it opened account options. Logout was only reachable via the small header avatar (top-right), which is easy to miss. Change password was duplicated in the sidebar footer and header menu with no shared component.
+
+**Rule:**
+> Any profile affordance with a chevron or dropdown visual cue **must** be a real `<button>` that opens an account menu (Change password + Logout). If the sidebar shows a profile card, wire it first — do not rely on header-only logout. Share one menu component across sidebar and header entry points.
+
+```tsx
+// WRONG — chevron implies menu, but nothing happens
+<div>
+  <UserAvatar /> Admin User <ChevronDown />
+</div>
+
+// CORRECT — profile card opens account menu
+<button aria-haspopup="menu" aria-expanded={open} onClick={toggleMenu}>
+  <UserAvatar /> Admin User <ChevronDown className={open ? 'open' : ''} />
+</button>
+{open && <AccountMenuPanel onChangePassword={...} onLogout={...} />}
+```
+
+See also: `.claude/AGENTS.md`, `frontend/AGENTS.md` (Account / AppShell section).
+
+---
+
+## 10. Job media upload/delete must use the same storage backend
+
+**Where it happened:** `storageService.ts`, `JobMedia.tsx`
+
+**What went wrong:**
+Local dev uses placeholder OCI credentials, so uploads went to disk (`uploads/`) but delete still called S3 → `SignatureDoesNotMatch` 500. Upload also added items twice (HTTP response + socket event). Image previews used absolute `http://localhost:3000/uploads/...` from the frontend origin → `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`.
+
+**Rule:**
+> Upload, signed-URL generation, and delete **must** share one `usesLocalStorage()` check. Use relative `/uploads/...` URLs in dev (Vite/Caddy proxy). Skip socket self-updates with `actorId`. Dedupe list updates with `prependById`. Block placeholder storage in production at startup.

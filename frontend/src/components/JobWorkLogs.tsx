@@ -1,6 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { apiFetch } from '../utils/api';
+import { mergeById, prependById } from '../utils/refetch';
 import CreatableSelect from 'react-select/creatable';
+import { useAuth } from '../contexts/AuthContext';
 
 interface WorkLog {
   id: string;
@@ -17,12 +19,12 @@ interface WorkLog {
 }
 
 export function JobWorkLogs({ jobId }: { jobId: string }) {
+  const { socket, user } = useAuth();
   const [workLogs, setWorkLogs] = useState<WorkLog[]>([]);
   const [contractors, setContractors] = useState<{id:string, name:string, hourlyRate?: string | number}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // Form state
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [workDate, setWorkDate] = useState(new Date().toISOString().split('T')[0]);
   const [hoursWorked, setHoursWorked] = useState<number | ''>('');
@@ -31,8 +33,6 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Groups logs by calendar date (UTC ISO date string used as key) so the table
-  // can render a date-header row with daily hour/cost totals, sorted newest-first.
   const groupedLogs = useMemo(() => {
     const groups: Record<string, { logs: WorkLog[], totalHours: number, totalCost: number }> = {};
 
@@ -49,10 +49,43 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
   }, [workLogs]);
 
-  useEffect(() => {
-    loadWorkLogs();
-    loadContractors();
+  const loadWorkLogs = useCallback(async (background = false) => {
+    try {
+      const response = await apiFetch(`/work-logs?jobId=${jobId}`);
+      const data: WorkLog[] = response.data || [];
+      setWorkLogs((prev) => (background ? mergeById(prev, data) : data));
+    } catch {
+      if (!background) {
+        setError('Failed to load work logs.');
+      }
+    } finally {
+      if (!background) {
+        setIsLoading(false);
+      }
+    }
   }, [jobId]);
+
+  const loadWorkLogsRef = useRef(loadWorkLogs);
+  loadWorkLogsRef.current = loadWorkLogs;
+
+  useEffect(() => {
+    loadWorkLogs(false);
+    loadContractors();
+  }, [jobId, loadWorkLogs]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: { jobId: string; actorId?: string; workLog?: WorkLog }) => {
+      if (payload.jobId !== jobId || payload.actorId === user?.id) return;
+      if (payload.workLog) {
+        setWorkLogs((prev) => prependById(prev, [payload.workLog!]));
+        return;
+      }
+      loadWorkLogsRef.current(true);
+    };
+    socket.on('workLog:created', handler);
+    return () => { socket.off('workLog:created', handler); };
+  }, [socket, jobId, user?.id]);
 
   const loadContractors = async () => {
     try {
@@ -63,58 +96,44 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
     }
   };
 
-  const loadWorkLogs = async () => {
-    try {
-      const response = await apiFetch(`/work-logs?jobId=${jobId}`);
-      setWorkLogs(response.data || []);
-    } catch (err: any) {
-      setError('Failed to load work logs.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
     try {
       if (editingLogId) {
-        // Update existing log
         await apiFetch(`/work-logs/${editingLogId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ 
-            workDate: new Date(workDate).toISOString(), 
-            hoursWorked: String(hoursWorked), 
+          body: JSON.stringify({
+            workDate: new Date(workDate).toISOString(),
+            hoursWorked: String(hoursWorked),
             rateApplied: hourlyRate !== '' ? String(hourlyRate) : undefined,
-            notes: notes || null 
+            notes: notes || null
           }),
         });
         setEditingLogId(null);
       } else {
-        // Create new log
         await apiFetch(`/work-logs`, {
           method: 'POST',
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             jobId,
             contractorId,
-            workDate: new Date(workDate).toISOString(), 
-            hoursWorked: String(hoursWorked), 
+            workDate: new Date(workDate).toISOString(),
+            hoursWorked: String(hoursWorked),
             hourlyRate: hourlyRate !== '' ? String(hourlyRate) : undefined,
-            notes: notes || null 
+            notes: notes || null
           }),
         });
       }
-      
+
       setNotes('');
       setHoursWorked('');
       setHourlyRate('');
       setContractorId('');
-      // Update local contractor list if rate changed
       if (hourlyRate !== '') {
         setContractors(prev => prev.map(c => c.id === contractorId ? { ...c, hourlyRate } : c));
       }
-      loadWorkLogs();
+      loadWorkLogs(false);
     } catch (err: any) {
       setError(err.message || 'Failed to add work log');
     } finally {
@@ -152,7 +171,7 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
     if (!window.confirm('Are you sure you want to delete this log?')) return;
     try {
       await apiFetch(`/work-logs/${logId}`, { method: 'DELETE' });
-      loadWorkLogs();
+      setWorkLogs((prev) => prev.filter((log) => log.id !== logId));
     } catch (err: any) {
       setError(err.message || 'Failed to delete log');
     }
@@ -163,7 +182,7 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
       <div className="section-card-header">
         <h3 style={{ fontSize: '1rem', margin: 0 }}>Work Logs (Labor)</h3>
       </div>
-      
+
       {error && <div className="page-error">{error}</div>}
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'row', gap: 'var(--space-md)', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 'var(--space-xl)' }}>
@@ -179,7 +198,7 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
           <label className="form-label">Contractor *</label>
           <CreatableSelect
             isClearable
-            isDisabled={isSubmitting || editingLogId !== null} // Cannot change contractor when editing (backend restriction)
+            isDisabled={isSubmitting || editingLogId !== null}
             isLoading={isSubmitting}
             onChange={(newValue: any) => {
               setContractorId(newValue ? newValue.value : '');

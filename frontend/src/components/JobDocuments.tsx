@@ -3,6 +3,7 @@ import { apiFetch } from '../utils/api';
 import { FileText, Lock, Edit, X } from 'lucide-react';
 import { DocumentEditModal } from './DocumentEditModal';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface GeneratedDocument {
   id: string;
@@ -38,6 +39,7 @@ interface Engineer {
 
 export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContractors }: { jobId: string; jobStatus: string; scheduledDate?: string | null; assignedContractors?: Engineer[] }) {
   const { showToast } = useToast();
+  const { socket } = useAuth();
   const [docs, setDocs] = useState<GeneratedDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -54,6 +56,16 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
   useEffect(() => {
     loadDocs();
   }, [jobId]);
+
+  // Real-time: reload when a document is generated for this job
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: { jobId: string }) => {
+      if (payload.jobId === jobId) loadDocs();
+    };
+    socket.on('document:created', handler);
+    return () => { socket.off('document:created', handler); };
+  }, [socket, jobId]);
 
   const loadDocs = async () => {
     try {

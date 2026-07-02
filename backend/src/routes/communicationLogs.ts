@@ -1,11 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, param, query } from 'express-validator';
-import { CommunicationDirection, CommunicationMethod, CommunicationOutcome, Role } from '@prisma/client';
+import { AuditAction, CommunicationDirection, CommunicationMethod, CommunicationOutcome, Role } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { getPaginationParams, paginate } from '../lib/utils';
-import { emitCommunicationLogged } from '../lib/socket';
+import { emitToJob, emitToAll } from '../lib/socket';
+import { logAudit } from '../services/auditService';
 
 const router = Router();
 router.use(requireAuth);
@@ -56,7 +57,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('communications:create'),
   [
     body('jobId').isUUID().withMessage('jobId is required.'),
     body('direction')
@@ -71,17 +72,21 @@ router.post(
     body('notes').optional({ nullable: true }).isString().trim(),
     body('loggedAt').optional().isISO8601().toDate()
       .withMessage('loggedAt must be a valid ISO date (defaults to now if omitted).'),
+    body('followUp').optional({ nullable: true }),
+    body('followUp.dueAt').if(body('followUp').exists({ checkNull: true })).isISO8601().toDate(),
+    body('followUp.note').optional({ nullable: true }).isString().trim(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { jobId, direction, method, outcome, notes, loggedAt } = req.body as {
+      const { jobId, direction, method, outcome, notes, loggedAt, followUp } = req.body as {
         jobId: string;
         direction: CommunicationDirection;
         method: CommunicationMethod;
         outcome: CommunicationOutcome;
         notes?: string | null;
         loggedAt?: Date;
+        followUp?: { dueAt: Date; note?: string | null } | null;
       };
 
       // Verify job exists
@@ -109,7 +114,47 @@ router.post(
         },
       });
 
-      emitCommunicationLogged(jobId);
+      await logAudit({
+        entityType: 'CommunicationLog',
+        entityId: log.id,
+        action: AuditAction.CREATE,
+        performedById: req.user!.id,
+        after: log as any,
+        jobId,
+      });
+
+      // Create a new follow-up reminder if requested.
+      // Reminders are never auto-closed by logging a comm — they close only when the
+      // user explicitly presses Mark Done or Dismiss on the timeline or notification center.
+      let createdReminder = null;
+      if (followUp?.dueAt) {
+        createdReminder = await prisma.followUpReminder.create({
+          data: {
+            jobId,
+            createdById: req.user!.id,
+            sourceCommunicationLogId: log.id,
+            dueAt: followUp.dueAt,
+            note: followUp.note ?? null,
+          },
+        });
+        await logAudit({
+          entityType: 'FollowUpReminder',
+          entityId: createdReminder.id,
+          action: AuditAction.CREATE,
+          performedById: req.user!.id,
+          after: createdReminder as any,
+          jobId,
+        });
+        emitToAll('reminder:changed', { jobId, ts: new Date().toISOString() });
+      }
+
+      emitToJob(jobId, 'communicationLog:created', {
+        jobId,
+        actorId: req.user!.id,
+        log,
+        ...(createdReminder ? { reminder: createdReminder } : {}),
+        ts: new Date().toISOString(),
+      });
       res.status(201).json(log);
     } catch (err) {
       next(err);

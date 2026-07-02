@@ -3,7 +3,7 @@ import { body, param, query } from 'express-validator';
 import { AuditAction, Role } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { fuzzySearch } from '../services/searchService';
 import { logAudit } from '../services/auditService';
 import { normalizeAddress, getPaginationParams, paginate } from '../lib/utils';
@@ -100,7 +100,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('properties:create'),
   [
     body('address').isString().trim().notEmpty().isLength({ max: 500 })
       .withMessage('address is required.'),
@@ -165,7 +165,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('properties:edit'),
   [
     param('id').isUUID(),
     body('address').optional().isString().trim().notEmpty().isLength({ max: 500 }),
@@ -298,7 +298,7 @@ router.get(
 
 router.delete(
   '/:id',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('properties:delete'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -368,7 +368,7 @@ router.get(
 
 router.post(
   '/:id/tenant-history',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('properties:edit'),
   [
     param('id').isUUID(),
     body('tenantName').isString().trim().notEmpty().isLength({ max: 255 }),
@@ -428,7 +428,7 @@ router.post(
 
 router.patch(
   '/:id/tenant-history/:historyId',
-  requireRole(Role.PM, Role.ADMIN, Role.OWNER),
+  requirePermission('properties:edit'),
   [
     param('id').isUUID(),
     param('historyId').isUUID(),

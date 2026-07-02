@@ -6,6 +6,14 @@ import logger from './lib/logger';
 import prisma from './lib/prisma';
 import { initSocket } from './lib/socket';
 import { startBackupCron } from './services/backupService';
+import { usesLocalStorage } from './services/storageService';
+
+if (config.env === 'production' && usesLocalStorage()) {
+  throw new Error(
+    'Production requires valid OCI Object Storage credentials. ' +
+    'Local uploads fallback (placeholder OCI_ACCESS_KEY_ID) is not allowed in production.'
+  );
+}
 
 const server = http.createServer(app);
 
@@ -64,11 +72,11 @@ async function shutdown(signal: string): Promise<void> {
     process.exit(0);
   });
 
-  // Force exit if graceful shutdown takes too long (15 seconds)
+  // Force exit if graceful shutdown takes too long (30 seconds)
   setTimeout(() => {
     logger.error('Graceful shutdown timed out — forcing exit');
     process.exit(1);
-  }, 15_000).unref();
+  }, 30_000).unref();
 }
 
 // ── Signal handlers ────────────────────────────────────────────────────────────

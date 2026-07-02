@@ -2,8 +2,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { ReminderProvider } from './contexts/ReminderContext';
 import { AppShell } from './components/AppShell';
 import { Login } from './pages/Login';
+import { ResetPassword } from './pages/ResetPassword';
 import { Dashboard } from './pages/Dashboard';
 import { ClientList } from './pages/ClientList';
 import { PropertyList } from './pages/PropertyList';
@@ -20,8 +22,10 @@ function App() {
     <AuthProvider>
       <ToastProvider>
       <BrowserRouter>
+      <ReminderProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           
           <Route element={<AppShell />}>
             <Route path="/" element={<Dashboard />} />
@@ -38,6 +42,7 @@ function App() {
           
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+      </ReminderProvider>
       </BrowserRouter>
       </ToastProvider>
     </AuthProvider>

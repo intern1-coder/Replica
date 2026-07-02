@@ -30,6 +30,13 @@
   --space-lg: 2rem;
   --space-xl: 3rem;
 
+  /* Sidebar layout */
+  --sidebar-gutter: var(--space-md);
+  --sidebar-width: 280px;
+  --sidebar-rail-width: 3.5rem;
+  --sidebar-icon-size: 1.25rem;
+  --sidebar-row-height: 2.75rem;
+
   /* Premium Border Radii (Extremely rounded but slightly dialed back) */
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -80,6 +87,11 @@
 
   --color-success: #166534;
   --color-success-bg: #dcfce7;
+  --color-error: #dc2626;
+  --color-error-bg: #fee2e2;
+  --color-warning: #d97706;
+  --color-warning-bg: #fef3c7;
+  --color-danger: #dc2626;
   --color-purple: #3730a3;
   --color-purple-bg: #e0e7ff;
 
@@ -129,6 +141,11 @@
 
     --color-success: #86efac;
     --color-success-bg: rgba(22, 101, 52, 0.35);
+    --color-error: #f87171;
+    --color-error-bg: rgba(153, 27, 27, 0.35);
+    --color-warning: #fbbf24;
+    --color-warning-bg: rgba(146, 64, 14, 0.35);
+    --color-danger: #f87171;
     --color-purple: #a5b4fc;
     --color-purple-bg: rgba(55, 48, 163, 0.35);
 

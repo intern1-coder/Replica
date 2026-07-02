@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import logger from '../lib/logger';
 import { OptimisticLockError } from '../middleware/errorHandler';
 import { emitJobStatusChanged } from '../lib/socket';
+import { getEffectivePermissions, sanitizeOverrides } from '../lib/permissions';
 
 // ── Transition map ─────────────────────────────────────────────────────────────
 // Defines every legal state transition (AppFlow.md).
@@ -92,9 +93,10 @@ export async function applyTransition({
     throw err;
   }
 
-  // Enforce Authorize Permission Check
+  // Enforce Authorize Permission Check (jobs:authorize — resolved from role + overrides)
   if (toStatus === JobStatus.AUTHORISED) {
-    if (user.role !== 'ADMIN' && user.role !== 'OWNER' && !user.canAuthorizeJobs) {
+    const permissions = getEffectivePermissions(user.role, sanitizeOverrides(user.permissionOverrides), user.canAuthorizeJobs);
+    if (!permissions['jobs:authorize']) {
       const err = Object.assign(
         new Error('You do not have permission to authorize jobs. Please ask an Admin or Approver to authorize this.'),
         { status: 403, error: 'Forbidden' }

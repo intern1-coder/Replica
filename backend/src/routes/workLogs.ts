@@ -3,9 +3,9 @@ import { body, param, query } from 'express-validator';
 import { Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { getPaginationParams, paginate } from '../lib/utils';
-import { emitWorkLogCreated } from '../lib/socket';
+import { emitToJob } from '../lib/socket';
 import { logAudit } from '../services/auditService';
 import logger from '../lib/logger';
 
@@ -117,7 +117,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('worklogs:create'),
   [
     body('jobId').isUUID().withMessage('jobId is required.'),
     body('contractorId').isUUID().withMessage('contractorId is required.'),
@@ -212,7 +212,12 @@ router.post(
       });
 
       // Notify connected clients that P&L has changed for this job
-      emitWorkLogCreated(jobId);
+      emitToJob(jobId, 'workLog:created', {
+        jobId,
+        actorId: req.user!.id,
+        workLog,
+        ts: new Date().toISOString(),
+      });
 
       res.status(201).json(workLog);
     } catch (err) {
@@ -227,7 +232,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('worklogs:edit'),
   [
     param('id').isUUID(),
     body('hoursWorked')
@@ -293,7 +298,7 @@ router.patch(
         jobId: updated.jobId,
       });
 
-      emitWorkLogCreated(existing.jobId); // P&L changed — signal consumers to refresh
+      emitToJob(existing.jobId, 'workLog:created', { jobId: existing.jobId, actorId: req.user!.id, ts: new Date().toISOString() }); // P&L changed — signal consumers to refresh
       res.json(updated);
     } catch (err) {
       next(err);
@@ -307,7 +312,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('worklogs:delete'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -334,7 +339,7 @@ router.delete(
         jobId: existing.jobId,
       });
 
-      emitWorkLogCreated(existing.jobId); // P&L changed
+      emitToJob(existing.jobId, 'workLog:created', { jobId: existing.jobId, actorId: req.user!.id, ts: new Date().toISOString() }); // P&L changed
       res.status(204).send();
     } catch (err) {
       next(err);

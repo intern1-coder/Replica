@@ -3,11 +3,12 @@ import { body, param, query } from 'express-validator';
 import { JobStatus, Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { applyTransition, getAllowedTransitions } from '../services/jobStateMachine';
 import { getPaginationParams, paginate, formatJobNumber } from '../lib/utils';
 import { logAudit } from '../services/auditService';
 import logger from '../lib/logger';
+import { emitToAll, emitToJob } from '../lib/socket';
 
 const router = Router();
 router.use(requireAuth);
@@ -165,7 +166,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('jobs:create'),
   [
     body('propertyId').isUUID().withMessage('propertyId must be a valid UUID.'),
     body('clientId').isUUID().withMessage('clientId must be a valid UUID.'),
@@ -273,6 +274,8 @@ router.post(
         jobId: job.id,
       });
 
+      emitToAll('job:created', { jobId: job.id, ts: new Date().toISOString() });
+
       res.status(201).json({
         ...withJobNumber(job),
         allowedTransitions: getAllowedTransitions(job.status),
@@ -290,7 +293,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('jobs:edit'),
   [
     param('id').isUUID(),
     body('description').optional({ nullable: true }).isString().trim(),
@@ -358,6 +361,23 @@ router.patch(
         jobId: updated.id,
       });
 
+      emitToJob(updated.id, 'job:updated', {
+        jobId: updated.id,
+        actorId: req.user!.id,
+        job: {
+          description: updated.description,
+          diagnosticNotes: updated.diagnosticNotes,
+          completionNotes: updated.completionNotes,
+          materials: updated.materials,
+          quotedValue: updated.quotedValue,
+          scheduledDate: updated.scheduledDate,
+          assignedContractors: updated.assignedContractors,
+          version: updated.version,
+          updatedAt: updated.updatedAt,
+        },
+        ts: new Date().toISOString(),
+      });
+
       res.json({
         ...withJobNumber(updated),
         allowedTransitions: getAllowedTransitions(updated.status),
@@ -376,7 +396,7 @@ router.patch(
 
 router.patch(
   '/:id/status',
-  requireRole(Role.PM, Role.ADMIN),
+  requirePermission('jobs:edit'),
   [
     param('id').isUUID(),
     body('status')
@@ -430,7 +450,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('jobs:delete'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -459,6 +479,7 @@ router.delete(
       });
 
       logger.info('Job deleted', { jobId: req.params['id'], deletedById: req.user!.id });
+      emitToAll('job:deleted', { jobId: req.params['id'], ts: new Date().toISOString() });
       res.status(204).send();
     } catch (err) {
       next(err);

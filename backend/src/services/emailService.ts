@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import config from '../config';
-import logger from '../lib/logger';
+import logger, { maskEmail } from '../lib/logger';
 
 // ── Transporter (lazy singleton) ───────────────────────────────────────────────
 // Created on first use so config errors surface at call time, not module load.
@@ -90,7 +90,7 @@ export async function sendMagicLinkEmail(
     `,
   });
 
-  logger.info('Magic-link email sent', { to: toEmail, messageId: info.messageId });
+  logger.info('Magic-link email sent', { maskedTo: maskEmail(toEmail), messageId: info.messageId });
 }
 
 /**
@@ -154,7 +154,7 @@ export async function sendPasswordResetEmail(
     `,
   });
 
-  logger.info('Password-reset email sent', { to: toEmail, messageId: info.messageId });
+  logger.info('Password-reset email sent', { maskedTo: maskEmail(toEmail), messageId: info.messageId });
 }
 
 /**
@@ -203,7 +203,7 @@ export async function sendBackupFailureAlert(errorMessage: string): Promise<void
     `,
   });
 
-  logger.warn('Backup failure alert email sent', { to: alertEmail });
+  logger.warn('Backup failure alert email sent', { maskedTo: maskEmail(alertEmail) });
 }
 
 // ── Diagnostics ────────────────────────────────────────────────────────────────

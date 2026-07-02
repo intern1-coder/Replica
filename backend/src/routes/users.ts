@@ -10,6 +10,7 @@ import {
   getEffectivePermissions,
   sanitizeOverrides,
 } from '../lib/permissions';
+import { emitToAll, emitUserPermissionsChanged } from '../lib/socket';
 
 const router = Router();
 
@@ -128,6 +129,7 @@ router.get(
  */
 router.post(
   '/',
+  requirePermission('users:view'),
   requirePermission('users:create'),
   [
     body('name').isString().trim().notEmpty().withMessage('Name is required.'),
@@ -160,6 +162,8 @@ router.post(
         select: SELECT_MEMBER,
       });
 
+      emitToAll('users:changed', { ts: Date.now() });
+
       res.status(201).json(user);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -177,6 +181,7 @@ router.post(
  */
 router.patch(
   '/:id',
+  requirePermission('users:view'),
   requirePermission('users:edit'),
   [
     param('id').isUUID(),
@@ -214,6 +219,17 @@ router.patch(
         select: SELECT_MEMBER,
       });
 
+      const permissionsChanged =
+        role !== undefined ||
+        permissionOverrides !== undefined ||
+        canAuthorizeJobs !== undefined;
+
+      if (permissionsChanged) {
+        emitUserPermissionsChanged(id, req.user?.id);
+      }
+
+      emitToAll('users:changed', { ts: Date.now() });
+
       res.json(user);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -231,6 +247,7 @@ router.patch(
  */
 router.post(
   '/:id/reset-password',
+  requirePermission('users:view'),
   requirePermission('users:edit'),
   [
     param('id').isUUID(),
@@ -251,7 +268,7 @@ router.post(
 
       await prisma.user.update({
         where: { id },
-        data: { passwordHash: await hashPassword(password) },
+        data: { passwordHash: await hashPassword(password), tokenVersion: { increment: 1 } },
       });
 
       res.json({ message: 'Password updated.' });
@@ -267,6 +284,7 @@ router.post(
  */
 router.delete(
   '/:id',
+  requirePermission('users:view'),
   requirePermission('users:delete'),
   [param('id').isUUID()],
   validate,
@@ -297,6 +315,9 @@ router.delete(
         where: { id },
         data: { deletedAt: new Date() },
       });
+
+      emitUserPermissionsChanged(id, req.user?.id);
+      emitToAll('users:changed', { ts: Date.now() });
 
       res.status(204).send();
     } catch (err) {

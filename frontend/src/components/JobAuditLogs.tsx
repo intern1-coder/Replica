@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiFetch } from '../utils/api';
+import { debounce, mergeById } from '../utils/refetch';
+import { useAuth } from '../contexts/AuthContext';
 import { ChevronDown, ChevronRight, Code2 } from 'lucide-react';
 
 interface AuditLog {
@@ -13,6 +15,11 @@ interface AuditLog {
   createdAt: string;
   performedBy?: { name: string };
 }
+
+const ENTITY_LABELS: Record<string, string> = {
+  CommunicationLog: 'Communication',
+  FollowUpReminder: 'Follow-up Reminder',
+};
 
 const FIELD_LABELS: Record<string, string> = {
   status: 'Status',
@@ -40,6 +47,16 @@ const FIELD_LABELS: Record<string, string> = {
   notes: 'Notes',
   contractor: 'Engineer',
   loggedBy: 'Logged By',
+  // CommunicationLog fields
+  outcome: 'Outcome',
+  method: 'Method',
+  direction: 'Direction',
+  loggedAt: 'Logged At',
+  // FollowUpReminder fields
+  dueAt: 'Due At',
+  note: 'Note',
+  resolvedReason: 'Resolution',
+  resolvedAt: 'Resolved At',
 };
 
 function formatAuditValue(key: string, val: unknown): string {
@@ -110,16 +127,19 @@ const SKIP_DIFF_KEYS = new Set([
   'clientId', 'propertyId', 'tenantId', 'performedById',
   'contractorId', 'loggedById',
   'id', 'jobId', 'entityId',
+  // Reminder internals — FK refs and system-set fields
+  'resolvedById', 'notifiedAt', 'sourceCommunicationLogId', 'createdById',
 ]);
 
-// Normalise both null and undefined to JSON null so a missing key in `before`
-// and an explicit null in `after` don't generate a spurious phantom diff entry.
 const diffKey = (val: unknown) => JSON.stringify(val ?? null);
 
 function ChangeTable({ before, after }: { before: Record<string, unknown>; after: Record<string, unknown> }) {
   const changes: { field: string; before: string; after: string }[] = [];
   for (const key of Object.keys(after)) {
     if (SKIP_DIFF_KEYS.has(key)) continue;
+    // Skip keys absent from `before` entirely — this indicates an old snapshot
+    // that was captured without relation includes, not a real data change.
+    if (!(key in before)) continue;
     if (diffKey(before[key]) !== diffKey(after[key])) {
       changes.push({
         field: getFieldLabel(key),
@@ -154,6 +174,7 @@ function ChangeTable({ before, after }: { before: Record<string, unknown>; after
 }
 
 export function JobAuditLogs({ jobId }: { jobId: string }) {
+  const { can, socket } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -162,39 +183,60 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
   const [hasPermission, setHasPermission] = useState(true);
 
   useEffect(() => {
-    // Pre-flight role check from the JWT payload avoids a guaranteed 403 round-trip.
-    // The backend still enforces the same restriction; this is purely UX.
-    const token = localStorage.getItem('affinity_token');
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        if (payload.role !== 'ADMIN' && payload.role !== 'OWNER' && payload.role !== 'PM') {
-          setHasPermission(false);
-          setIsLoading(false);
-          return;
-        }
-      } catch (e) {
-        console.error('Failed to parse token', e);
-      }
+    if (!can('audit:view')) {
+      setHasPermission(false);
+      setIsLoading(false);
+      return;
     }
-    loadLogs();
-  }, [jobId]);
+    loadLogs(false);
+  }, [jobId, can]);
 
-  const loadLogs = async () => {
+  const loadLogsRef = useRef<(background?: boolean) => Promise<void>>(async () => {});
+
+  const loadLogs = useCallback(async (background = false) => {
     try {
       const response = await apiFetch(`/audit-logs?jobId=${jobId}`);
-      const data = response.data || [];
-      setLogs(data);
+      const data: AuditLog[] = response.data || [];
+      setLogs((prev) => (background ? mergeById(prev, data) : data));
     } catch (err: any) {
-      if (err.status === 403) {
-        setError('You do not have permission to view audit logs.');
-      } else {
-        setError('Failed to load audit logs.');
+      if (!background) {
+        if (err.status === 403) {
+          setError('You do not have permission to view audit logs.');
+        } else {
+          setError('Failed to load audit logs.');
+        }
       }
     } finally {
-      setIsLoading(false);
+      if (!background) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [jobId]);
+
+  loadLogsRef.current = loadLogs;
+
+  const debouncedBackgroundLoad = useMemo(
+    () => debounce(() => loadLogsRef.current(true), 300),
+    []
+  );
+
+  // Real-time: merge new audit entries without loading flash
+  useEffect(() => {
+    if (!socket || !can('audit:view')) return;
+    const handler = (payload: { jobId: string }) => {
+      if (payload.jobId === jobId) debouncedBackgroundLoad();
+    };
+    socket.on('job:updated', handler);
+    socket.on('job:statusChanged', handler);
+    socket.on('workLog:created', handler);
+    socket.on('communicationLog:created', handler);
+    return () => {
+      socket.off('job:updated', handler);
+      socket.off('job:statusChanged', handler);
+      socket.off('workLog:created', handler);
+      socket.off('communicationLog:created', handler);
+    };
+  }, [socket, jobId, can, debouncedBackgroundLoad]);
 
   const toggleEntry = (id: string) => {
     if (expandedLogId === id) {
@@ -206,18 +248,20 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
     }
   };
 
+  const entityLabel = (type: string) => ENTITY_LABELS[type] ?? type;
+
   const generateHumanReadableDiff = (log: AuditLog) => {
-    if (log.action === 'CREATE') return `Created new ${log.entityType}.`;
-    if (log.action === 'DELETE') return `Deleted ${log.entityType}.`;
+    if (log.action === 'CREATE') return `Created new ${entityLabel(log.entityType)}.`;
+    if (log.action === 'DELETE') return `Deleted ${entityLabel(log.entityType)}.`;
     if (log.action === 'UPDATE') {
-      if (!log.before || !log.after) return `Updated ${log.entityType}.`;
+      if (!log.before || !log.after) return `Updated ${entityLabel(log.entityType)}.`;
       const changeCount = Object.keys(log.after).filter(
-        (k) => !SKIP_DIFF_KEYS.has(k) && diffKey(log.before[k]) !== diffKey(log.after[k])
+        (k) => !SKIP_DIFF_KEYS.has(k) && (k in log.before) && diffKey(log.before[k]) !== diffKey(log.after[k])
       ).length;
-      if (changeCount === 0) return `Updated ${log.entityType} (no significant changes).`;
+      if (changeCount === 0) return `Updated ${entityLabel(log.entityType)} (no significant changes).`;
       return `${changeCount} field${changeCount === 1 ? '' : 's'} changed`;
     }
-    return `${log.action} on ${log.entityType}`;
+    return `${log.action} on ${entityLabel(log.entityType)}`;
   };
 
   if (!hasPermission) return null;
@@ -254,7 +298,7 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
                   <span className={`status-badge ${log.action === 'DELETE' ? 'cancelled' : log.action === 'CREATE' ? 'authorised' : 'quoted'}`}>
                     {log.action}
                   </span>
-                  <strong>{log.entityType}</strong>
+                  <strong>{entityLabel(log.entityType)}</strong>
                   <span className="text-secondary audit-entry-summary">{generateHumanReadableDiff(log)}</span>
                   <span className="text-muted audit-entry-meta">
                     {log.performedBy?.name || 'Unknown'} · {new Date(log.createdAt).toLocaleString()}

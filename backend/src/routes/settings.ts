@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body } from 'express-validator';
 import { Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { validate } from '../middleware/errorHandler';
 import { logAudit } from '../services/auditService';
 
@@ -39,7 +39,7 @@ router.get(
 
 router.patch(
   '/vat-rate',
-  requireRole(Role.ADMIN, Role.OWNER),
+  requirePermission('settings:edit'),
   [
     body('vatRate')
       .isFloat({ min: 0, max: 1 })

@@ -3,12 +3,12 @@ import { param, query } from 'express-validator';
 import { Prisma, Role } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { formatJobNumber, getPaginationParams } from '../lib/utils';
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole(Role.PM, Role.ADMIN, Role.ACCOUNTS, Role.OWNER));
+router.use(requirePermission('financials:view'));
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

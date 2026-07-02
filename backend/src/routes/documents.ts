@@ -9,17 +9,18 @@ import prisma from '../lib/prisma';
 import s3 from '../lib/s3';
 import config from '../config';
 import { validate } from '../middleware/errorHandler';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { generatePdf } from '../services/pdfService';
 import { formatJobNumber } from '../lib/utils';
 import logger from '../lib/logger';
+import { emitToJob } from '../lib/socket';
 import { getMediaSignedUrl } from '../services/storageService';
 import { getBase64Images } from '../services/imageEmbedder';
 import { getVatRate } from './settings';
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireRole(Role.PM, Role.ADMIN, Role.OWNER));
+router.use(requirePermission('documents:view'));
 
 // ── Stage-Gating: which statuses allow which documents ──────────────────────
 const QUOTE_ALLOWED_STATUSES: JobStatus[] = [JobStatus.QUOTED, JobStatus.AUTHORISED, JobStatus.COMPLETED];
@@ -67,6 +68,7 @@ function calculateVat(netValue: string | number, rate: number = 0.2): { vatAmoun
 
 router.post(
   '/quote',
+  requirePermission('documents:create'),
   [body('jobId').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -132,6 +134,7 @@ router.post(
         },
       });
 
+      emitToJob(job.id, 'document:created', { jobId: job.id, ts: new Date().toISOString() });
       res.status(201).json(doc);
     } catch (err) {
       next(err);
@@ -143,6 +146,7 @@ router.post(
 
 router.post(
   '/job-sheet',
+  requirePermission('documents:create'),
   [body('jobId').isUUID(), body('engineerName').optional().isString().trim()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -224,6 +228,7 @@ router.post(
         },
       });
 
+      emitToJob(job.id, 'document:created', { jobId: job.id, ts: new Date().toISOString() });
       res.status(201).json(doc);
     } catch (err) {
       next(err);
@@ -235,6 +240,7 @@ router.post(
 
 router.post(
   '/completion-report',
+  requirePermission('documents:create'),
   [body('jobId').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -326,6 +332,7 @@ router.post(
         },
       });
 
+      emitToJob(job.id, 'document:created', { jobId: job.id, ts: new Date().toISOString() });
       res.status(201).json(doc);
     } catch (err) {
       next(err);
@@ -338,6 +345,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requirePermission('documents:edit'),
   [
     param('id').isUUID(),
     body('snapshotData').isObject(),

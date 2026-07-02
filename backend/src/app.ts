@@ -4,8 +4,9 @@ import cors from 'cors';
 import morgan from 'morgan';
 import config from './config';
 import { morganStream } from './lib/logger';
-import { globalLimiter } from './middleware/rateLimiter';
+import { globalLimiter, searchLimiter } from './middleware/rateLimiter';
 import { errorHandler } from './middleware/errorHandler';
+import { requestId } from './middleware/requestId';
 
 // Route modules
 import healthRouter from './routes/health';
@@ -46,12 +47,21 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// ── Request correlation id (before logging so it can be included) ──────────────
+app.use(requestId);
+
 // ── HTTP request logging (Morgan → Winston) ────────────────────────────────────
-app.use(
-  morgan(config.env === 'production' ? 'combined' : 'dev', {
-    stream: morganStream,
-  })
-);
+// Custom tokens: `path` logs req.path WITHOUT the query string, so search terms
+// (e.g. /api/clients?q=<name>) never reach the logs; `id` is the correlation id.
+morgan.token('path', (req) => (req as express.Request).path);
+morgan.token('id', (req) => (req as express.Request).id ?? '-');
+
+// Production: structured, no query string, includes request id. Dev: concise.
+const morganFormat = config.env === 'production'
+  ? ':remote-addr :method :path :status :res[content-length] - :response-time ms :id'
+  : ':method :path :status :response-time ms';
+
+app.use(morgan(morganFormat, { stream: morganStream }));
 
 // ── Request timeout ────────────────────────────────────────────────────────────
 // Abort any request that takes longer than 30 seconds to prevent hung workers.
@@ -62,8 +72,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Global rate limiter ────────────────────────────────────────────────────────
-app.use(globalLimiter);
+// ── Rate limiters ──────────────────────────────────────────────────────────────
+// Search routes get a dedicated higher-ceiling limiter so search-as-you-type
+// doesn't eat into the global budget for mutations and other API calls.
+app.use('/api/clients', searchLimiter);
+app.use('/api/properties', searchLimiter);
+app.use('/api/tenants', searchLimiter);
+app.use('/api/jobs', searchLimiter);
+app.use(globalLimiter); // skips GET ?q= / ?search= requests (handled above)
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.use('/api/health', healthRouter);
@@ -90,6 +106,7 @@ app.use('/api/reminders', remindersRouter);
 // In production this path is never hit — files are served via signed S3 URLs.
 import path from 'path';
 app.use('/uploads', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   if (req.query.download === 'true') {
     res.setHeader('Content-Disposition', 'attachment');
   }
