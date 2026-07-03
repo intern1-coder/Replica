@@ -1,13 +1,23 @@
 # Affinity — Production Deployment Runbook
 
-Target: Oracle Cloud Free Tier VM · Ubuntu 22.04 ARM (Ampere A1) · ~20 users
+Target: AWS EC2 t4g.micro (Graviton ARM64, 1GB RAM) · Ubuntu 24.04 · 5–10 users
+
+Provision the instance first: see `docs/AWS_EC2_PROVISIONING.md` (EC2 launch, Security Group, Elastic IP, S3 bucket, IAM keys).
 
 ---
 
-## 1. Oracle VM Setup
+## 1. EC2 Instance Setup
 
 ```bash
 sudo apt update && sudo apt upgrade -y
+
+# Swap — REQUIRED on the 1GB t4g.micro (Puppeteer PDF generation needs it)
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h   # confirm 2GB swap is active
 
 # Docker
 sudo apt install -y ca-certificates curl gnupg
@@ -56,12 +66,11 @@ SMTP_USER=you@example.com
 SMTP_PASS=<smtp-password>
 SMTP_FROM=noreply@yourdomain.com
 
-# OCI Object Storage (for file uploads)
-OCI_NAMESPACE=<oci-namespace>
-OCI_BUCKET=<bucket-name>
-OCI_REGION=<region>           # e.g. ap-mumbai-1
-OCI_ACCESS_KEY=<access-key>
-OCI_SECRET_KEY=<secret-key>
+# AWS S3 (for file uploads) — bucket + IAM user from AWS_EC2_PROVISIONING.md
+STORAGE_REGION=<region>              # e.g. ap-south-1
+STORAGE_BUCKET_NAME=<bucket-name>
+STORAGE_ACCESS_KEY_ID=<iam-access-key-id>
+STORAGE_SECRET_ACCESS_KEY=<iam-secret-access-key>
 
 # Alerts
 ALERT_EMAIL=ops@yourdomain.com
@@ -161,11 +170,10 @@ sudo systemctl enable docker
 
 ## 10. Firewall: Open Ports 80 and 443 Only
 
-**OCI Security List** (in the OCI console):
+**AWS Security Group** (set at instance launch — see `AWS_EC2_PROVISIONING.md`):
 
-- Ingress rule: TCP · Source `0.0.0.0/0` · Destination port `80`
-- Ingress rule: TCP · Source `0.0.0.0/0` · Destination port `443`
-- Remove or restrict any rule exposing port `3000` to the internet
+- Inbound: TCP `80` and `443` from `0.0.0.0/0`; TCP `22` from your IP only
+- Do NOT add a rule exposing port `3000` to the internet
 
 **ufw on the VM:**
 

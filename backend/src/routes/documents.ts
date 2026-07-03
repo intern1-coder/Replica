@@ -23,9 +23,11 @@ router.use(requireAuth);
 router.use(requirePermission('documents:view'));
 
 // ── Stage-Gating: which statuses allow which documents ──────────────────────
-const QUOTE_ALLOWED_STATUSES: JobStatus[] = [JobStatus.QUOTED, JobStatus.AUTHORISED, JobStatus.COMPLETED];
-const JOB_SHEET_ALLOWED_STATUSES: JobStatus[] = [JobStatus.AUTHORISED, JobStatus.COMPLETED];
-const COMPLETION_ALLOWED_STATUSES: JobStatus[] = [JobStatus.COMPLETED];
+const QUOTE_ALLOWED_STATUSES: JobStatus[] = [JobStatus.QUOTED, JobStatus.AUTHORISED, JobStatus.PENDING_INVOICE, JobStatus.COMPLETED];
+const JOB_SHEET_ALLOWED_STATUSES: JobStatus[] = [JobStatus.AUTHORISED, JobStatus.PENDING_INVOICE, JobStatus.COMPLETED];
+// Completion report unlocks at PENDING_INVOICE so Accounts can review it
+// before signing the job off as COMPLETED.
+const COMPLETION_ALLOWED_STATUSES: JobStatus[] = [JobStatus.PENDING_INVOICE, JobStatus.COMPLETED];
 
 // Uploads PDF to S3-compatible object storage. Falls back to local disk when
 // credentials are absent or mocked (dev/CI environments). Returns the storage key
@@ -34,7 +36,7 @@ async function uploadPdfToStorage(jobId: string, pdfBuffer: Buffer, docType: Doc
   const storageKey = `jobs/${jobId}/documents/${docType.toLowerCase()}_${crypto.randomUUID()}.pdf`;
 
   // Fallback to local storage if AWS credentials are not configured
-  if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId.includes('your-oci') || config.storage.accessKeyId === '') {
+  if (!config.storage.accessKeyId || config.storage.accessKeyId.includes('mock') || config.storage.accessKeyId.includes('your-') || config.storage.accessKeyId === '') {
     const localPath = path.join(__dirname, '../../uploads', storageKey);
     await fs.mkdir(path.dirname(localPath), { recursive: true });
     await fs.writeFile(localPath, pdfBuffer);
@@ -241,7 +243,12 @@ router.post(
 router.post(
   '/completion-report',
   requirePermission('documents:create'),
-  [body('jobId').isUUID()],
+  [
+    body('jobId').isUUID(),
+    // Logged hours are hidden from client reports unless explicitly opted in —
+    // protects margins by default.
+    body('includeWorkLogs').optional().isBoolean().toBoolean(),
+  ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -269,7 +276,7 @@ router.post(
       if (!COMPLETION_ALLOWED_STATUSES.includes(job.status)) {
         res.status(400).json({
           error: 'Bad Request',
-          message: 'Completion Report can only be generated once the job is marked COMPLETED.',
+          message: 'Completion Report can only be generated once the job reaches PENDING_INVOICE.',
         });
         return;
       }
@@ -283,8 +290,10 @@ router.post(
       const { vatAmount, totalWithVat } = calculateVat(quotedValue, vatRate);
       const vatPercent = (vatRate * 100).toString();
 
-      // Build work logs data
-      const workLogs = job.workLogs.map((wl: any) => ({
+      const includeWorkLogs = req.body.includeWorkLogs === true;
+
+      // Build work logs data — only when the report should show logged hours
+      const workLogs = !includeWorkLogs ? [] : job.workLogs.map((wl: any) => ({
         contractorName: wl.contractor?.name || 'Unknown',
         date: wl.workDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
         hours: `${Number(wl.hoursWorked)} Hour${Number(wl.hoursWorked) !== 1 ? 's' : ''}`,
@@ -314,6 +323,7 @@ router.post(
           description: item.description,
           price: Number(item.price).toFixed(2),
         })),
+        includeWorkLogs,
         workLogs,
         diagnosticImages,
         completionImages,

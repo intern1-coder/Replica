@@ -98,7 +98,7 @@ logging in production to chase a bug.
 ## Database backups (already implemented, verified)
 
 `services/backupService.ts` runs every night at 2 AM:
-- `pg_dump | gzip` → OCI Object Storage `backups/daily/YYYY-MM-DD.sql.gz`
+- `pg_dump | gzip` → S3 object storage `backups/daily/YYYY-MM-DD.sql.gz`
 - Monthly copy on the 1st of each month (`backups/monthly/`)
 - 30-day retention on daily backups
 - Weekly storage usage report
@@ -110,7 +110,7 @@ Restore procedure: `docs/RESTORE.md`
 
 ## Deployment
 
-Full step-by-step Oracle VM setup: `docs/DEPLOY.md`
+Full step-by-step server setup (AWS EC2): `docs/DEPLOY.md`
 
 **Required env vars for production `.env`:**
 ```
@@ -119,7 +119,7 @@ JWT_SECRET          (64+ chars)
 CORS_ORIGIN         (https://yourdomain.com)
 SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS
 EMAIL_FROM / EMAIL_FROM_NAME
-OCI_ENDPOINT / OCI_REGION / OCI_BUCKET_NAME / OCI_ACCESS_KEY_ID / OCI_SECRET_ACCESS_KEY
+STORAGE_REGION / STORAGE_BUCKET_NAME / STORAGE_ACCESS_KEY_ID / STORAGE_SECRET_ACCESS_KEY
 ALERT_EMAIL         (backup failure notifications)
 NODE_ENV=production
 ```
