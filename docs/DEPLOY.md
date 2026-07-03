@@ -130,6 +130,11 @@ curl http://localhost:3000/api/health
 ## 7. Start Caddy
 
 ```bash
+# The Caddyfile imports /app/active-upstream.caddy (written by the blue-green
+# deploy.sh on larger instances). On the single-container setup, create it
+# once, pointing at the backend:
+echo "reverse_proxy 127.0.0.1:3000" > /app/active-upstream.caddy
+
 # Set your domain — Caddy will obtain a Let's Encrypt cert automatically
 export DOMAIN=yourdomain.com
 sudo DOMAIN=$DOMAIN caddy start --config /app/Caddyfile
