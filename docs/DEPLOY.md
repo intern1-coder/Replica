@@ -200,7 +200,12 @@ sudo ufw status
 ## 11. Nightly Database Backups to S3
 
 ```bash
-sudo apt install -y awscli
+# AWS CLI v2 (the `awscli` apt package does not exist on Ubuntu 24.04)
+cd /tmp
+curl -s "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o awscliv2.zip
+sudo apt install -y unzip && unzip -q awscliv2.zip && sudo ./aws/install
+rm -rf /tmp/aws /tmp/awscliv2.zip
+
 chmod +x /app/scripts/backup-db.sh
 /app/scripts/backup-db.sh   # test run — should print "backup OK"
 crontab -e                  # add:  0 2 * * * /app/scripts/backup-db.sh >> /var/log/affinity-backup.log 2>&1
