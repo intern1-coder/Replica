@@ -197,6 +197,20 @@ sudo ufw status
 
 ---
 
+## 11. Nightly Database Backups to S3
+
+```bash
+sudo apt install -y awscli
+chmod +x /app/scripts/backup-db.sh
+/app/scripts/backup-db.sh   # test run — should print "backup OK"
+crontab -e                  # add:  0 2 * * * /app/scripts/backup-db.sh >> /var/log/affinity-backup.log 2>&1
+sudo touch /var/log/affinity-backup.log && sudo chown $USER /var/log/affinity-backup.log
+```
+
+Backups land in `s3://<bucket>/backups/`, credentials come from `/app/backend/.env`, retention 30 days (pruned by the script). Restore command is documented at the top of `scripts/backup-db.sh`.
+
+---
+
 ## Quick Reference — Common Operations
 
 | Task | Command |
