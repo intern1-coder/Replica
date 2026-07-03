@@ -127,6 +127,7 @@ export function Engineers() {
         {isLoading ? (
           <p>Loading…</p>
         ) : (
+          <div className="table-scroll">
           <table className="dense-table">
             <thead>
               <tr>
@@ -167,6 +168,7 @@ export function Engineers() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

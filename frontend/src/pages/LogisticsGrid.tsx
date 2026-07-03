@@ -219,15 +219,15 @@ export function LogisticsGrid() {
               
               <div className="flex" style={{ flexDirection: 'column', gap: 'var(--space-md)' }}>
                 {Object.entries(contractorGroups).map(([contractorName, contractorLogs]) => (
-                  <div key={contractorName} className="flex items-start gap-4" style={{ gap: 'var(--space-lg)' }}>
-                    <div className="flex items-center gap-3" style={{ width: '200px', flexShrink: 0, fontWeight: 500, padding: 'var(--space-sm) 0' }}>
+                  <div key={contractorName} className="flex items-start gap-4 logistics-row" style={{ gap: 'var(--space-lg)' }}>
+                    <div className="flex items-center gap-3 logistics-contractor" style={{ fontWeight: 500, padding: 'var(--space-sm) 0' }}>
                       <div className="flex items-center justify-center" style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-brand)' }}>
                         <User size={18} />
                       </div>
                       <span style={{ fontSize: '1rem', color: 'var(--color-text-primary)' }}>{contractorName}</span>
                     </div>
                     
-                    <div className="flex gap-4" style={{ overflowX: 'auto', paddingBottom: '0.5rem', flex: 1 }}>
+                    <div className="flex gap-4 logistics-cards" style={{ overflowX: 'auto', paddingBottom: '0.5rem', flex: 1 }}>
                       {contractorLogs.map((log) => (
                         <motion.div 
                           key={log.id} 
@@ -235,9 +235,8 @@ export function LogisticsGrid() {
                           whileHover={{ scale: 1.02, backgroundColor: 'var(--color-surface-hover)' }}
                           whileTap={{ scale: 0.98 }}
                           transition={{ type: 'spring', duration: 0.3 }}
-                          className="section-card card-hover"
-                          style={{ 
-                            minWidth: '280px', 
+                          className="section-card card-hover logistics-card"
+                          style={{
                             marginBottom: 0,
                             cursor: 'pointer',
                             padding: 'var(--space-md)'
@@ -345,7 +344,7 @@ export function LogisticsGrid() {
                       <div className="flex items-center gap-2"><User size={16} className="text-muted"/> <strong>Contractor:</strong> {selectedLog.contractor?.name}</div>
                     </div>
                     <h4 style={{ marginTop: 'var(--space-md)', marginBottom: 'var(--space-sm)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--space-md)' }}>Financials</h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+                    <div className="form-grid-2">
                       <div><span className="text-muted" style={{fontSize:'0.8rem'}}>HOURS</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>{Number(selectedLog.hoursWorked).toFixed(2)}</span></div>
                       <div><span className="text-muted" style={{fontSize:'0.8rem'}}>RATE</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>${Number(selectedLog.rateApplied).toFixed(2)}</span></div>
                       <div><span className="text-muted" style={{fontSize:'0.8rem'}}>MATERIAL</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>${Number(selectedLog.materialCost || 0).toFixed(2)}</span></div>

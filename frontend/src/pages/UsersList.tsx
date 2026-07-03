@@ -139,6 +139,7 @@ export function UsersList() {
         <p>Loading team…</p>
       ) : (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="table-scroll">
           <table style={{ margin: 0, border: 'none', borderRadius: 0, boxShadow: 'none' }}>
             <thead>
               <tr>
@@ -213,6 +214,7 @@ export function UsersList() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
