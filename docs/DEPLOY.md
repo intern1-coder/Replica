@@ -32,6 +32,10 @@ sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
 sudo apt update && sudo apt install -y caddy
+
+# Node.js 22 (needed for the frontend build in §4)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
 ```
 
 ---
@@ -50,7 +54,13 @@ git clone <your-repo-url> /app
 ```bash
 cat > /app/backend/.env <<'EOF'
 NODE_ENV=production
-DATABASE_URL="postgresql://user:password@host:5432/affinity?connection_limit=15"
+
+# Database — docker-compose.yml builds DATABASE_URL from these (host is the
+# `db` service); do NOT set DATABASE_URL yourself.
+POSTGRES_USER=affinity
+POSTGRES_PASSWORD=<random-32-char-string>
+POSTGRES_DB=affinity
+
 JWT_SECRET=<random-64-char-string>
 CORS_ORIGIN=https://yourdomain.com
 
@@ -67,7 +77,7 @@ SMTP_PASS=<smtp-password>
 SMTP_FROM=noreply@yourdomain.com
 
 # AWS S3 (for file uploads) — bucket + IAM user from AWS_EC2_PROVISIONING.md
-STORAGE_REGION=<region>              # e.g. ap-south-1
+STORAGE_REGION=<region>              # e.g. eu-west-2
 STORAGE_BUCKET_NAME=<bucket-name>
 STORAGE_ACCESS_KEY_ID=<iam-access-key-id>
 STORAGE_SECRET_ACCESS_KEY=<iam-secret-access-key>
@@ -77,7 +87,7 @@ ALERT_EMAIL=ops@yourdomain.com
 EOF
 ```
 
-Generate a strong JWT secret: `openssl rand -hex 32`
+Generate a strong JWT secret: `openssl rand -hex 32` · database password: `openssl rand -hex 16`
 
 ---
 

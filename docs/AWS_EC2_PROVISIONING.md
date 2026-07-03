@@ -17,7 +17,7 @@ Why ARM (Graviton): our Docker images are built for `linux/arm64` (`.github/work
 
 ## 1. Account Basics
 
-1. Sign in to the AWS console, pick a region close to your users — e.g. **ap-south-1 (Mumbai)**. Stay in this region for everything below.
+1. Sign in to the AWS console, pick a region close to your users. We use **eu-west-2 (London)** — keeps all data in the UK for GDPR data residency. Stay in this region for everything below.
 2. **Billing alarm (do this first):** Billing console → Budgets → Create budget → Monthly cost budget → amount **$10** → add your email. You'll be alerted before any cost surprise.
 
 ## 2. Key Pair (SSH)
