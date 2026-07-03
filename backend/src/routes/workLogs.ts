@@ -57,7 +57,12 @@ router.get(
           include: {
             contractor: { select: { id: true, name: true } },
             loggedBy: { select: { id: true, name: true } },
-            job: { 
+            receipts: {
+              where: { deletedAt: null },
+              select: { id: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true },
+              orderBy: { createdAt: 'desc' },
+            },
+            job: {
               select: { 
                 id: true, 
                 sequence: true, 

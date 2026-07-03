@@ -12,7 +12,7 @@ import { motion } from 'motion/react';
 export interface Job {
   id: string;
   sequence: number;
-  status: 'TO_BE_CHECKED' | 'CHECKED' | 'QUOTED' | 'AUTHORISED' | 'COMPLETED' | 'CANCELLED';
+  status: 'TO_BE_CHECKED' | 'CHECKED' | 'QUOTED' | 'AUTHORISED' | 'PENDING_INVOICE' | 'COMPLETED' | 'CANCELLED';
   clientId: string;
   propertyId: string;
   description: string | null;
@@ -193,6 +193,7 @@ export function JobList() {
             <option value="CHECKED">Checked</option>
             <option value="QUOTED">Quoted</option>
             <option value="AUTHORISED">Authorised</option>
+            <option value="PENDING_INVOICE">Pending Invoice</option>
             <option value="COMPLETED">Completed</option>
             <option value="CANCELLED">Cancelled</option>
           </select>

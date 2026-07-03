@@ -9,6 +9,16 @@ function requireEnv(name: string): string {
   return value;
 }
 
+// Reads the first defined variable from a list of names. Lets STORAGE_* be the
+// canonical names while old OCI_* names keep working on existing servers.
+function requireEnvAny(names: readonly string[]): string {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  throw new Error(`Missing required environment variable: ${names[0]} (or legacy ${names.slice(1).join(', ')})`);
+}
+
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
@@ -43,13 +53,15 @@ const config = {
     fromName: process.env.EMAIL_FROM_NAME || 'Affinity Workspace',
   },
 
-  // OCI Object Storage — S3-compatible API (TechSpec.md)
+  // Object storage — AWS S3 by default. STORAGE_ENDPOINT is only needed for
+  // S3-compatible providers (e.g. OCI); leave it unset for native AWS S3 and
+  // the SDK derives the endpoint from the region. Legacy OCI_* names still work.
   storage: {
-    endpoint: requireEnv('OCI_ENDPOINT'),
-    region: process.env.OCI_REGION || 'us-ashburn-1',
-    bucket: requireEnv('OCI_BUCKET_NAME'),
-    accessKeyId: requireEnv('OCI_ACCESS_KEY_ID'),
-    secretAccessKey: requireEnv('OCI_SECRET_ACCESS_KEY'),
+    endpoint: process.env.STORAGE_ENDPOINT || process.env.OCI_ENDPOINT || undefined,
+    region: process.env.STORAGE_REGION || process.env.OCI_REGION || 'ap-south-1',
+    bucket: requireEnvAny(['STORAGE_BUCKET_NAME', 'OCI_BUCKET_NAME']),
+    accessKeyId: requireEnvAny(['STORAGE_ACCESS_KEY_ID', 'OCI_ACCESS_KEY_ID']),
+    secretAccessKey: requireEnvAny(['STORAGE_SECRET_ACCESS_KEY', 'OCI_SECRET_ACCESS_KEY']),
     // How long signed GET URLs are valid (seconds). Default 1 hour.
     signedUrlExpiresSeconds: parseInt(process.env.SIGNED_URL_EXPIRES_SECONDS || '3600', 10),
   },

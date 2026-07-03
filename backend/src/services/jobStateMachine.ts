@@ -1,8 +1,8 @@
-import { JobStatus } from '@prisma/client';
+import { JobStatus, Role } from '@prisma/client';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
 import { OptimisticLockError } from '../middleware/errorHandler';
-import { emitJobStatusChanged } from '../lib/socket';
+import { emitJobStatusChanged, emitReminderChanged, emitToUser } from '../lib/socket';
 import { getEffectivePermissions, sanitizeOverrides } from '../lib/permissions';
 
 // ── Transition map ─────────────────────────────────────────────────────────────
@@ -14,12 +14,15 @@ import { getEffectivePermissions, sanitizeOverrides } from '../lib/permissions';
 // No ad-hoc status updates anywhere else in the codebase.
 
 const ALLOWED_TRANSITIONS: Readonly<Record<JobStatus, readonly JobStatus[]>> = {
-  [JobStatus.TO_BE_CHECKED]: [JobStatus.CHECKED,    JobStatus.CANCELLED],
-  [JobStatus.CHECKED]:       [JobStatus.QUOTED,     JobStatus.CANCELLED],
-  [JobStatus.QUOTED]:        [JobStatus.AUTHORISED, JobStatus.CANCELLED],
-  [JobStatus.AUTHORISED]:    [JobStatus.COMPLETED,  JobStatus.CANCELLED],
-  [JobStatus.COMPLETED]:     [],   // terminal
-  [JobStatus.CANCELLED]:     [],   // terminal
+  [JobStatus.TO_BE_CHECKED]:   [JobStatus.CHECKED,         JobStatus.CANCELLED],
+  [JobStatus.CHECKED]:         [JobStatus.QUOTED,          JobStatus.CANCELLED],
+  [JobStatus.QUOTED]:          [JobStatus.AUTHORISED,      JobStatus.CANCELLED],
+  // Physical work done → hand off to Accounts for invoice review. Jobs can no
+  // longer jump straight to COMPLETED — Accounts signs off first.
+  [JobStatus.AUTHORISED]:      [JobStatus.PENDING_INVOICE, JobStatus.CANCELLED],
+  [JobStatus.PENDING_INVOICE]: [JobStatus.COMPLETED,       JobStatus.CANCELLED],
+  [JobStatus.COMPLETED]:       [],   // terminal
+  [JobStatus.CANCELLED]:       [],   // terminal
 } as const;
 
 // ── Pure helpers (unit-testable without a database) ────────────────────────────
@@ -105,6 +108,20 @@ export async function applyTransition({
     }
   }
 
+  // Enforce Complete Permission Check (jobs:complete) — only Accounts/Admin/Owner
+  // may mark a job COMPLETED, after reviewing the completion report and receipts
+  // and sending the invoice.
+  if (toStatus === JobStatus.COMPLETED) {
+    const permissions = getEffectivePermissions(user.role, sanitizeOverrides(user.permissionOverrides), user.canAuthorizeJobs);
+    if (!permissions['jobs:complete']) {
+      const err = Object.assign(
+        new Error('Only the Accounts team (or an Admin) can mark a job as Completed once the invoice has been sent.'),
+        { status: 403, error: 'Forbidden' }
+      );
+      throw err;
+    }
+  }
+
   // 2. Validate transition
   if (!isTransitionAllowed(job.status, toStatus)) {
     const allowed = getAllowedTransitions(job.status);
@@ -158,6 +175,20 @@ export async function applyTransition({
   // their local copy is stale.
   emitJobStatusChanged(jobId, toStatus, currentVersion + 1);
 
+  // 4.5 Hand-off to Accounts: when a job enters PENDING_INVOICE, create an
+  // invoice-review task and notify Accounts users. Failures here must never
+  // roll back the (already committed) status transition.
+  if (toStatus === JobStatus.PENDING_INVOICE) {
+    try {
+      await notifyAccountsOfPendingInvoice(jobId, performedById);
+    } catch (err) {
+      logger.error('Failed to create invoice-review reminder / notify accounts', {
+        jobId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // 5. Return refreshed job
   return prisma.job.findUniqueOrThrow({
     where: { id: jobId },
@@ -167,4 +198,37 @@ export async function applyTransition({
       assignedContractors: { select: { id: true, name: true } },
     },
   });
+}
+
+/**
+ * Creates the invoice-review follow-up task for a job that just entered
+ * PENDING_INVOICE and pushes a realtime notification to every Accounts
+ * (and Admin/Owner) user so it appears in their queue immediately.
+ */
+async function notifyAccountsOfPendingInvoice(jobId: string, performedById: string): Promise<void> {
+  const dueAt = new Date();
+  dueAt.setDate(dueAt.getDate() + 2);
+
+  await prisma.followUpReminder.create({
+    data: {
+      jobId,
+      createdById: performedById,
+      dueAt,
+      note: 'Invoice review: check the completion report and material receipts, send the invoice, then mark the job Completed.',
+    },
+  });
+
+  emitReminderChanged(jobId);
+
+  const accountsUsers = await prisma.user.findMany({
+    where: { role: { in: [Role.ACCOUNTS, Role.ADMIN, Role.OWNER] }, deletedAt: null },
+    select: { id: true },
+  });
+  for (const u of accountsUsers) {
+    emitToUser(u.id, 'job:pendingInvoice', {
+      jobId,
+      actorId: performedById,
+      ts: new Date().toISOString(),
+    });
+  }
 }

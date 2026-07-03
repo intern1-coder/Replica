@@ -77,6 +77,10 @@
   --status-authorised-text: #166534;
   --status-authorised-border: transparent;
 
+  --status-pending-invoice-bg: #fce7f3;
+  --status-pending-invoice-text: #9d174d;
+  --status-pending-invoice-border: transparent;
+
   --status-completed-bg: #d1fae5;
   --status-completed-text: #065f46;
   --status-completed-border: transparent;
@@ -132,6 +136,9 @@
 
     --status-authorised-bg: rgba(22, 101, 52, 0.3);
     --status-authorised-text: #86efac;
+
+    --status-pending-invoice-bg: rgba(157, 23, 77, 0.3);
+    --status-pending-invoice-text: #f9a8d4;
 
     --status-completed-bg: rgba(6, 95, 70, 0.3);
     --status-completed-text: #6ee7b7;
@@ -240,6 +247,7 @@ a:focus-visible {
 .status-badge.checked { background-color: var(--status-checked-bg); color: var(--status-checked-text); border-color: var(--status-checked-border); }
 .status-badge.quoted { background-color: var(--status-quoted-bg); color: var(--status-quoted-text); border-color: var(--status-quoted-border); }
 .status-badge.authorised { background-color: var(--status-authorised-bg); color: var(--status-authorised-text); border-color: var(--status-authorised-border); }
+.status-badge.pending_invoice { background-color: var(--status-pending-invoice-bg); color: var(--status-pending-invoice-text); border-color: var(--status-pending-invoice-border); }
 .status-badge.completed { background-color: var(--status-completed-bg); color: var(--status-completed-text); border-color: var(--status-completed-border); }
 .status-badge.cancelled { background-color: var(--status-cancelled-bg); color: var(--status-cancelled-text); border-color: var(--status-cancelled-border); }
 

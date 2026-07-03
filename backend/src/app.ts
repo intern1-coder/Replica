@@ -16,6 +16,7 @@ import propertiesRouter from './routes/properties';
 import tenantsRouter from './routes/tenants';
 import jobsRouter from './routes/jobs';
 import workLogsRouter from './routes/workLogs';
+import workLogReceiptsRouter from './routes/workLogReceipts';
 import jobMediaRouter from './routes/jobMedia';
 import communicationLogsRouter from './routes/communicationLogs';
 import pnlRouter from './routes/pnl';
@@ -88,6 +89,9 @@ app.use('/api/clients', clientsRouter);
 app.use('/api/properties', propertiesRouter);
 app.use('/api/tenants', tenantsRouter);
 app.use('/api/jobs', jobsRouter);
+// Receipts router first — its /:workLogId/receipts and /receipts/:id paths must
+// match before workLogsRouter's generic /:id route.
+app.use('/api/work-logs', workLogReceiptsRouter);
 app.use('/api/work-logs', workLogsRouter);
 app.use('/api/job-media', jobMediaRouter);
 app.use('/api/communication-logs', communicationLogsRouter);

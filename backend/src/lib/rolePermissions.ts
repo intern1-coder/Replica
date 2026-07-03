@@ -46,11 +46,14 @@ const PM: PermissionKey[] = [
   'audit:view',
 ];
 
-// ACCOUNTS: read-only operational access + financial visibility.
+// ACCOUNTS: read-only operational access + financial visibility, plus the
+// invoice workflow: review completion reports and sign jobs off as COMPLETED.
 const ACCOUNTS: PermissionKey[] = [
   ...OPEN_VIEWS,
   'financials:view',
   'engineer_costs:view',
+  'documents:view',
+  'jobs:complete',
 ];
 
 // CONTRACTOR: view-only of the open resources.

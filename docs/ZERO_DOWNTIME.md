@@ -1,5 +1,7 @@
 # Zero-Downtime Deployments
 
+> **Note (AWS, 2026-07):** blue-green is NOT used on the current t4g.micro (1GB RAM) instance — running two backend containers side by side doesn't fit. Production deploys use the single-container flow in `docs/AWS_DEPLOYMENT_GUIDE.md` Phase 4. This doc applies only if the instance is resized to ≥2GB.
+
 ## How blue-green works
 
 Two containers run on the VM:
@@ -74,9 +76,9 @@ Set these in **Settings → Secrets and variables → Actions → New repository
 
 | Secret | Value |
 |--------|-------|
-| `VM_HOST` | Public IP or hostname of the Oracle Cloud VM |
-| `VM_USER` | SSH username (e.g. `ubuntu` or `opc`) |
-| `VM_SSH_KEY` | Contents of the SSH private key (`~/.ssh/id_ed25519`) |
+| `VM_HOST` | Elastic IP or hostname of the AWS EC2 instance |
+| `VM_USER` | SSH username (`ubuntu`) |
+| `VM_SSH_KEY` | Contents of the SSH private key (the EC2 key pair `.pem`) |
 
 ---
 

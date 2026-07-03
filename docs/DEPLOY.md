@@ -1,13 +1,23 @@
 # Affinity — Production Deployment Runbook
 
-Target: Oracle Cloud Free Tier VM · Ubuntu 22.04 ARM (Ampere A1) · ~20 users
+Target: AWS EC2 t4g.micro (Graviton ARM64, 1GB RAM) · Ubuntu 24.04 · 5–10 users
+
+Provision the instance first: see `docs/AWS_EC2_PROVISIONING.md` (EC2 launch, Security Group, Elastic IP, S3 bucket, IAM keys).
 
 ---
 
-## 1. Oracle VM Setup
+## 1. EC2 Instance Setup
 
 ```bash
 sudo apt update && sudo apt upgrade -y
+
+# Swap — REQUIRED on the 1GB t4g.micro (Puppeteer PDF generation needs it)
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h   # confirm 2GB swap is active
 
 # Docker
 sudo apt install -y ca-certificates curl gnupg
@@ -22,6 +32,10 @@ sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
 sudo apt update && sudo apt install -y caddy
+
+# Node.js 22 (needed for the frontend build in §4)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
 ```
 
 ---
@@ -40,7 +54,13 @@ git clone <your-repo-url> /app
 ```bash
 cat > /app/backend/.env <<'EOF'
 NODE_ENV=production
-DATABASE_URL="postgresql://user:password@host:5432/affinity?connection_limit=15"
+
+# Database — docker-compose.yml builds DATABASE_URL from these (host is the
+# `db` service); do NOT set DATABASE_URL yourself.
+POSTGRES_USER=affinity
+POSTGRES_PASSWORD=<random-32-char-string>
+POSTGRES_DB=affinity
+
 JWT_SECRET=<random-64-char-string>
 CORS_ORIGIN=https://yourdomain.com
 
@@ -56,19 +76,18 @@ SMTP_USER=you@example.com
 SMTP_PASS=<smtp-password>
 SMTP_FROM=noreply@yourdomain.com
 
-# OCI Object Storage (for file uploads)
-OCI_NAMESPACE=<oci-namespace>
-OCI_BUCKET=<bucket-name>
-OCI_REGION=<region>           # e.g. ap-mumbai-1
-OCI_ACCESS_KEY=<access-key>
-OCI_SECRET_KEY=<secret-key>
+# AWS S3 (for file uploads) — bucket + IAM user from AWS_EC2_PROVISIONING.md
+STORAGE_REGION=<region>              # e.g. eu-west-2
+STORAGE_BUCKET_NAME=<bucket-name>
+STORAGE_ACCESS_KEY_ID=<iam-access-key-id>
+STORAGE_SECRET_ACCESS_KEY=<iam-secret-access-key>
 
 # Alerts
 ALERT_EMAIL=ops@yourdomain.com
 EOF
 ```
 
-Generate a strong JWT secret: `openssl rand -hex 32`
+Generate a strong JWT secret: `openssl rand -hex 32` · database password: `openssl rand -hex 16`
 
 ---
 
@@ -161,11 +180,10 @@ sudo systemctl enable docker
 
 ## 10. Firewall: Open Ports 80 and 443 Only
 
-**OCI Security List** (in the OCI console):
+**AWS Security Group** (set at instance launch — see `AWS_EC2_PROVISIONING.md`):
 
-- Ingress rule: TCP · Source `0.0.0.0/0` · Destination port `80`
-- Ingress rule: TCP · Source `0.0.0.0/0` · Destination port `443`
-- Remove or restrict any rule exposing port `3000` to the internet
+- Inbound: TCP `80` and `443` from `0.0.0.0/0`; TCP `22` from your IP only
+- Do NOT add a rule exposing port `3000` to the internet
 
 **ufw on the VM:**
 
@@ -176,6 +194,20 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 sudo ufw status
 ```
+
+---
+
+## 11. Nightly Database Backups to S3
+
+```bash
+sudo apt install -y awscli
+chmod +x /app/scripts/backup-db.sh
+/app/scripts/backup-db.sh   # test run — should print "backup OK"
+crontab -e                  # add:  0 2 * * * /app/scripts/backup-db.sh >> /var/log/affinity-backup.log 2>&1
+sudo touch /var/log/affinity-backup.log && sudo chown $USER /var/log/affinity-backup.log
+```
+
+Backups land in `s3://<bucket>/backups/`, credentials come from `/app/backend/.env`, retention 30 days (pruned by the script). Restore command is documented at the top of `scripts/backup-db.sh`.
 
 ---
 

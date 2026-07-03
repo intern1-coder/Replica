@@ -19,16 +19,16 @@ interface GeneratedDocument {
 // drives the UI lock/unlock state so users see the right affordances.
 const DOCUMENT_STAGE_RULES: Record<string, { allowed: string[]; message: string }> = {
   QUOTE: {
-    allowed: ['QUOTED', 'AUTHORISED', 'COMPLETED'],
+    allowed: ['QUOTED', 'AUTHORISED', 'PENDING_INVOICE', 'COMPLETED'],
     message: 'Quote Report can only be generated once the job reaches QUOTED stage.',
   },
   JOB_SHEET: {
-    allowed: ['AUTHORISED', 'COMPLETED'],
+    allowed: ['AUTHORISED', 'PENDING_INVOICE', 'COMPLETED'],
     message: 'Job Sheet can only be generated once the job reaches AUTHORISED stage.',
   },
   COMPLETION_REPORT: {
-    allowed: ['COMPLETED'],
-    message: 'Completion Report can only be generated once the job is marked COMPLETED.',
+    allowed: ['PENDING_INVOICE', 'COMPLETED'],
+    message: 'Completion Report can only be generated once the job reaches PENDING INVOICE stage.',
   },
 };
 
@@ -46,6 +46,8 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
   const [error, setError] = useState('');
 
   const [editingDoc, setEditingDoc] = useState<GeneratedDocument | null>(null);
+  // Hidden by default — logged hours are internal; opt in per report.
+  const [includeWorkLogs, setIncludeWorkLogs] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, message: string, onConfirm: () => void} | null>(null);
 
   // Job Sheet chooser dialog
@@ -192,7 +194,9 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
     try {
       const newDoc = await apiFetch(endpoint, {
         method: 'POST',
-        body: JSON.stringify({ jobId })
+        body: JSON.stringify(
+          type === 'COMPLETION_REPORT' ? { jobId, includeWorkLogs } : { jobId }
+        )
       });
       setDocs([newDoc, ...docs]);
       showToast(`${type.replace(/_/g, ' ')} generated`, 'success');
@@ -258,6 +262,17 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
         {isGenerating && <span className="flex items-center text-secondary" style={{ fontSize: '0.85rem' }}>Generating PDF...</span>}
       </div>
 
+      {isDocAllowed('COMPLETION_REPORT') && (
+        <label className="flex items-center gap-2" style={{ marginBottom: 'var(--space-md)', fontSize: '0.85rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={includeWorkLogs}
+            onChange={(e) => setIncludeWorkLogs(e.target.checked)}
+          />
+          Include Logged Hours on Client Report
+        </label>
+      )}
+
       {!scheduledDate && isDocAllowed('JOB_SHEET') && (
         <div className="flex items-center gap-2" style={{ padding: '0.5rem 0.75rem', marginBottom: 'var(--space-sm)', backgroundColor: 'var(--status-quoted-bg)', color: 'var(--status-quoted-text)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
           <Lock size={14} />
@@ -269,7 +284,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
         <div className="flex items-center gap-2" style={{ padding: '0.5rem 0.75rem', marginBottom: 'var(--space-sm)', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
           <Lock size={14} />
           Quote & Job Sheet will be available once job reaches <strong>QUOTED</strong> stage.
-          {jobStatus !== 'COMPLETED' && <span>Completion Report requires <strong>COMPLETED</strong> stage.</span>}
+          {!isDocAllowed('COMPLETION_REPORT') && <span>Completion Report requires <strong>PENDING INVOICE</strong> stage.</span>}
         </div>
       )}
 

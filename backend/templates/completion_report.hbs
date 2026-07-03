@@ -94,6 +94,7 @@
     </table>
     {{/if}}
 
+    {{#if includeWorkLogs}}
     {{#if workLogs.length}}
     <div class="section-title">Work Logs</div>
     <table class="worklogs-table">
@@ -114,6 +115,7 @@
         {{/each}}
       </tbody>
     </table>
+    {{/if}}
     {{/if}}
 
     {{#if completionNotes}}

@@ -26,7 +26,7 @@ export async function getBase64Images(
       // Check if using local storage
       const isLocalStorage = !config.storage.accessKeyId || 
         config.storage.accessKeyId.includes('mock') || 
-        config.storage.accessKeyId.includes('your-oci') || 
+        config.storage.accessKeyId.includes('your-') ||
         config.storage.accessKeyId === '';
 
       let imageBuffer: Buffer;

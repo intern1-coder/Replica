@@ -10,8 +10,8 @@ import { usesLocalStorage } from './services/storageService';
 
 if (config.env === 'production' && usesLocalStorage()) {
   throw new Error(
-    'Production requires valid OCI Object Storage credentials. ' +
-    'Local uploads fallback (placeholder OCI_ACCESS_KEY_ID) is not allowed in production.'
+    'Production requires valid S3 object storage credentials. ' +
+    'Local uploads fallback (placeholder STORAGE_ACCESS_KEY_ID) is not allowed in production.'
   );
 }
 
