@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import { applyPermissionToggle } from '../utils/permissions';
-import { Users, UserPlus, KeyRound, Shield, Trash2, Pencil, X } from 'lucide-react';
+import { Users, UserPlus, KeyRound, Shield, Trash2, Pencil, X, MailPlus } from 'lucide-react';
 
 interface Member {
   id: string;
@@ -11,6 +11,7 @@ interface Member {
   email: string;
   role: string;
   canAuthorizeJobs: boolean;
+  hasPassword?: boolean;
   permissionOverrides?: Record<string, boolean> | null;
 }
 
@@ -32,6 +33,7 @@ export function UsersList() {
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [resetId, setResetId] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
 
   const sessionReady = user !== null;
   const canView = can('users:view');
@@ -93,6 +95,15 @@ export function UsersList() {
     return <Navigate to="/" replace />;
   }
 
+  const handleResendInvite = async (m: Member) => {
+    try {
+      const res = await apiFetch(`/users/${m.id}/resend-invite`, { method: 'POST' });
+      setNotice(res.message || `Invite sent to ${m.email}.`);
+    } catch (err: any) {
+      alert(err.message || 'Failed to resend invite');
+    }
+  };
+
   const handleDeactivate = async (m: Member) => {
     if (!confirm(`Deactivate ${m.name}? They will no longer be able to log in.`)) return;
     try {
@@ -117,6 +128,12 @@ export function UsersList() {
       </div>
 
       {error && <div className="page-error">{error}</div>}
+      {notice && (
+        <div className="section-card flex items-center justify-between" style={{ padding: 'var(--space-sm) var(--space-md)', marginBottom: 'var(--space-md)' }}>
+          <span className="text-secondary">{notice}</span>
+          <button className="button secondary" style={{ padding: 6 }} onClick={() => setNotice('')}><X size={16} /></button>
+        </div>
+      )}
 
       {isLoading ? (
         <p>Loading team…</p>
@@ -140,7 +157,15 @@ export function UsersList() {
                 return (
                   <tr key={m.id} className={`stagger-${(idx % 5) + 1}`}>
                     <td className="font-medium">{m.name}</td>
-                    <td className="text-secondary">{m.email}</td>
+                    <td className="text-secondary">
+                      {m.email}
+                      {m.email.endsWith('@noemail.local') && (
+                        <span className="status-badge" title="Placeholder address — set a real email so this member can log in" style={{ marginLeft: 6 }}>no email</span>
+                      )}
+                      {m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
+                        <span className="status-badge quoted" title="Member has not set a password yet" style={{ marginLeft: 6 }}>invite pending</span>
+                      )}
+                    </td>
                     <td><span className="status-badge quoted">{m.role}</span></td>
                     <td>
                       {overrideCount > 0 ? (
@@ -154,6 +179,11 @@ export function UsersList() {
                         {canEdit && (
                           <button className="button secondary" title="Edit & permissions" onClick={() => setEditId(m.id)}>
                             <Pencil size={16} />
+                          </button>
+                        )}
+                        {canCreate && m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
+                          <button className="button secondary" title="Resend invite email" onClick={() => handleResendInvite(m)}>
+                            <MailPlus size={16} />
                           </button>
                         )}
                         {canEdit && (
@@ -190,7 +220,7 @@ export function UsersList() {
         <AddMemberModal
           groups={groups}
           onClose={() => setAddOpen(false)}
-          onCreated={() => { setAddOpen(false); load(); }}
+          onCreated={(message) => { setAddOpen(false); setNotice(message); load(); }}
         />
       )}
       {editId && (
@@ -279,7 +309,7 @@ function PermissionMatrix({
 
 // ── Add member ─────────────────────────────────────────────────────────────────
 
-function AddMemberModal({ groups, onClose, onCreated }: { groups: PermGroup[]; onClose: () => void; onCreated: () => void }) {
+function AddMemberModal({ groups, onClose, onCreated }: { groups: PermGroup[]; onClose: () => void; onCreated: (message: string) => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('PM');
@@ -292,21 +322,28 @@ function AddMemberModal({ groups, onClose, onCreated }: { groups: PermGroup[]; o
     e.preventDefault();
     setError('');
     if (!name.trim()) return setError('Name is required.');
+    if (!email.trim()) return setError('Email address is required.');
     if (password && password.length < 8) return setError('Password must be at least 8 characters.');
     if (password !== confirm) return setError('Passwords do not match.');
 
     setSaving(true);
     try {
-      await apiFetch('/users', {
+      const created = await apiFetch('/users', {
         method: 'POST',
         body: JSON.stringify({
           name: name.trim(),
-          email: email.trim() || undefined,
+          email: email.trim(),
           role,
           password: password || undefined,
         }),
       });
-      onCreated();
+      onCreated(
+        created.warning
+          ? created.warning
+          : password
+            ? `${name.trim()} created. Share their password securely.`
+            : `Invite sent to ${email.trim()} — they'll set their own password from the link.`
+      );
     } catch (err: any) {
       setError(err.message || 'Failed to create member');
       setSaving(false);
@@ -323,7 +360,7 @@ function AddMemberModal({ groups, onClose, onCreated }: { groups: PermGroup[]; o
         </div>
         <div className="form-row">
           <label className="form-label">Email address</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="optional" />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="member@company.com" />
         </div>
         <div className="form-row">
           <label className="form-label">Role</label>
@@ -332,8 +369,8 @@ function AddMemberModal({ groups, onClose, onCreated }: { groups: PermGroup[]; o
           </select>
         </div>
         <div className="form-row">
-          <label className="form-label">Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" placeholder="Min 8 chars (leave blank for no login)" />
+          <label className="form-label">Password (optional)</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" placeholder="Leave blank to email a set-password link" />
         </div>
         <div className="form-row">
           <label className="form-label">Confirm password</label>

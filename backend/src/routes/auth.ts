@@ -5,10 +5,9 @@ import {
   comparePassword,
   generateJWT,
   hashPassword,
-  generateResetToken,
   hashResetToken,
 } from '../services/authService';
-import { sendPasswordResetEmail } from '../services/emailService';
+import { sendPasswordSetupEmail } from '../services/passwordSetupService';
 import { validate } from '../middleware/errorHandler';
 import { authLimiter } from '../middleware/rateLimiter';
 import { requireAuth } from '../middleware/auth';
@@ -102,16 +101,8 @@ router.post(
       const user = await prisma.user.findFirst({ where: { email, deletedAt: null } });
 
       if (user) {
-        const rawToken = generateResetToken();
-        const expiresAt = new Date(Date.now() + config.passwordReset.expiresMinutes * 60_000);
-
-        await prisma.passwordResetToken.create({
-          data: { userId: user.id, tokenHash: hashResetToken(rawToken), expiresAt },
-        });
-
-        const resetUrl = `${config.frontendUrl}/reset-password?token=${rawToken}`;
         try {
-          await sendPasswordResetEmail(user.email, user.name, resetUrl);
+          await sendPasswordSetupEmail(user);
         } catch (mailErr) {
           // Don't leak failures to the client; log for ops. (Many members use
           // @noemail.local addresses where delivery is expected to fail.)

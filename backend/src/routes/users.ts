@@ -5,6 +5,8 @@ import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { hashPassword } from '../services/authService';
+import { sendPasswordSetupEmail } from '../services/passwordSetupService';
+import logger, { maskEmail } from '../lib/logger';
 import {
   PERMISSION_GROUPS,
   getEffectivePermissions,
@@ -25,7 +27,15 @@ const SELECT_MEMBER = {
   hourlyRate: true,
   canAuthorizeJobs: true,
   permissionOverrides: true,
+  passwordHash: true,
 } as const;
+
+// Never expose the hash — replace it with a hasPassword flag so the UI can
+// tell which members still need to accept their invite.
+function toMemberResponse<T extends { passwordHash: string | null }>(user: T) {
+  const { passwordHash, ...rest } = user;
+  return { ...rest, hasPassword: passwordHash !== null };
+}
 
 /**
  * GET /api/users/meta/permissions
@@ -67,7 +77,7 @@ router.get(
         take: 200,
       });
 
-      res.json(users);
+      res.json(users.map(toMemberResponse));
     } catch (err) {
       next(err);
     }
@@ -108,6 +118,7 @@ router.get(
           role: member.role,
           hourlyRate: member.hourlyRate,
           canAuthorizeJobs: member.canAuthorizeJobs,
+          hasPassword: member.passwordHash !== null,
         },
         overrides,
         rolePermissions: getEffectivePermissions(member.role, null),
@@ -133,8 +144,8 @@ router.post(
   requirePermission('users:create'),
   [
     body('name').isString().trim().notEmpty().withMessage('Name is required.'),
-    body('email').optional({ nullable: true }).isEmail().normalizeEmail()
-      .withMessage('email must be a valid email address.'),
+    body('email').isEmail().normalizeEmail()
+      .withMessage('A valid email address is required.'),
     body('role').isIn(Object.values(Role)).withMessage('A valid role is required.'),
     body('password').optional({ nullable: true }).isString().isLength({ min: 8 })
       .withMessage('Password must be at least 8 characters.'),
@@ -148,7 +159,7 @@ router.post(
 
       const data: Prisma.UserCreateInput = {
         name,
-        email: email || `${name.toLowerCase().replace(/\s+/g, '')}@noemail.local`,
+        email,
         role,
         hourlyRate: 0,
         canAuthorizeJobs: canAuthorizeJobs ?? false,
@@ -164,7 +175,24 @@ router.post(
 
       emitToAll('users:changed', { ts: Date.now() });
 
-      res.status(201).json(user);
+      // No password set → email the member a link to choose their own.
+      // A failed send must not roll back the created user; the UI offers
+      // "Resend invite" instead.
+      let warning: string | undefined;
+      if (!password) {
+        try {
+          await sendPasswordSetupEmail(user, { isInvite: true });
+        } catch (mailErr) {
+          logger.warn('Failed to send invite email', {
+            userId: user.id,
+            maskedEmail: maskEmail(user.email),
+            error: mailErr instanceof Error ? mailErr.message : String(mailErr),
+          });
+          warning = 'Member created, but the invite email could not be sent. Use "Resend invite" once email is working.';
+        }
+      }
+
+      res.status(201).json({ ...toMemberResponse(user), ...(warning ? { warning } : {}) });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         res.status(409).json({ error: 'Conflict', message: 'A user with that email already exists.' });
@@ -230,12 +258,65 @@ router.patch(
 
       emitToAll('users:changed', { ts: Date.now() });
 
-      res.json(user);
+      res.json(toMemberResponse(user));
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         res.status(409).json({ error: 'Conflict', message: 'A user with that email already exists.' });
         return;
       }
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/users/:id/resend-invite
+ * Re-sends the set-password invite email to a member who has not yet set a
+ * password (lost or expired invite link).
+ */
+router.post(
+  '/:id/resend-invite',
+  requirePermission('users:view'),
+  requirePermission('users:create'),
+  [param('id').isUUID()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const member = await prisma.user.findFirst({
+        where: { id: req.params['id'], deletedAt: null },
+        select: { id: true, email: true, name: true, passwordHash: true },
+      });
+
+      if (!member) {
+        res.status(404).json({ error: 'Not Found', message: 'Member not found.' });
+        return;
+      }
+
+      if (member.passwordHash !== null) {
+        res.status(400).json({
+          error: 'Bad Request',
+          message: 'This member has already set a password. Use the password reset flow instead.',
+        });
+        return;
+      }
+
+      try {
+        await sendPasswordSetupEmail(member, { isInvite: true });
+      } catch (mailErr) {
+        logger.warn('Failed to resend invite email', {
+          userId: member.id,
+          maskedEmail: maskEmail(member.email),
+          error: mailErr instanceof Error ? mailErr.message : String(mailErr),
+        });
+        res.status(502).json({
+          error: 'Bad Gateway',
+          message: 'The invite email could not be sent. Check the SMTP configuration and try again.',
+        });
+        return;
+      }
+
+      res.json({ message: `Invite sent to ${member.email}.` });
+    } catch (err) {
       next(err);
     }
   }
