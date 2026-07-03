@@ -30,6 +30,7 @@ enum JobStatus {
   CHECKED
   QUOTED
   AUTHORISED
+  PENDING_INVOICE
   COMPLETED
   CANCELLED
 }
@@ -97,6 +98,7 @@ model User {
 
   loggedWorkLogs           WorkLog[]          @relation("LoggedWorkLogs")
   uploadedMedia            JobMedia[]         @relation("UploadedMedia")
+  uploadedReceipts         WorkLogReceipt[]   @relation("UploadedReceipts")
   performedCommunications  CommunicationLog[] @relation("PerformedCommunications")
   createdReminders         FollowUpReminder[] @relation("CreatedReminders")
   resolvedReminders        FollowUpReminder[] @relation("ResolvedReminders")
@@ -314,6 +316,8 @@ model WorkLog {
   workDate     DateTime @db.Date
   notes        String?
 
+  receipts     WorkLogReceipt[]
+
   deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -347,6 +351,32 @@ model JobMedia {
 
   @@map("job_media")
   @@index([jobId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WorkLogReceipt — material receipt / invoice files attached to a WorkLog entry.
+// Same storage pattern as JobMedia: only the storageKey is kept, never a path.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WorkLogReceipt {
+  id           String    @id @default(uuid())
+
+  workLogId    String
+  workLog      WorkLog   @relation(fields: [workLogId], references: [id])
+
+  storageKey   String
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+
+  uploadedById String
+  uploadedBy   User      @relation("UploadedReceipts", fields: [uploadedById], references: [id])
+
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@map("work_log_receipts")
+  @@index([workLogId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

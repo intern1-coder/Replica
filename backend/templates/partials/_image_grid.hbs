@@ -1,11 +1,12 @@
 {{#if images}}
 {{#if images.length}}
-<div style="margin-top: 15px;">
+<div style="margin-top: 15px; page-break-before: always;">
   <h3 style="font-size: 14px; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; margin-bottom: 10px;">{{title}}</h3>
-  <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+  <!-- 5.61cm × 7.47cm per photo, 3 per row → 9 per A4 page (20mm margins). -->
+  <div style="display: flex; flex-wrap: wrap; gap: 0.6mm;">
     {{#each images}}
-    <div style="width: 32%; box-sizing: border-box;">
-      <img src="{{this.src}}" alt="{{this.fileName}}" style="width: 100%; height: 180px; object-fit: cover; border: 1px solid #e5e7eb; border-radius: 4px;" />
+    <div style="width: 5.61cm; height: 7.47cm; box-sizing: border-box; page-break-inside: avoid;">
+      <img src="{{this.src}}" alt="{{this.fileName}}" style="width: 5.61cm; height: 7.47cm; object-fit: cover; border: 1px solid #e5e7eb; border-radius: 4px; display: block;" />
     </div>
     {{/each}}
   </div>

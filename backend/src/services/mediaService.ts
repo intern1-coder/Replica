@@ -25,6 +25,15 @@ const IMAGE_MIME_TYPES = new Set([
   'image/heic',
 ]);
 
+// Receipts: photos of paper receipts or supplier invoice PDFs.
+const RECEIPT_ALLOWED_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'application/pdf',
+]);
+
 // ── Multer configuration ───────────────────────────────────────────────────────
 // Memory storage — images are processed by sharp before upload.
 // For this fleet size (5 users, ~5 photos per job) in-memory is appropriate.
@@ -41,6 +50,21 @@ export const upload = multer({
       cb(null, true);
     } else {
       cb(new Error(`Unsupported file type: ${file.mimetype}. Allowed: JPEG, PNG, WebP, HEIC, MP4, MOV.`));
+    }
+  },
+});
+
+export const receiptUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 20 * 1024 * 1024, // 20 MB — receipts are photos or small PDFs
+    files: 5,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (RECEIPT_ALLOWED_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type: ${file.mimetype}. Allowed: JPEG, PNG, WebP, HEIC, PDF.`));
     }
   },
 });
@@ -99,6 +123,60 @@ export async function uploadMedia(
   const storageKey = `jobs/${jobId}/media/${crypto.randomUUID()}.${ext}`;
 
   // Fallback to local storage if AWS credentials are not configured
+  if (usesLocalStorage()) {
+    const localPath = path.join(__dirname, '../../uploads', storageKey);
+    await fs.mkdir(path.dirname(localPath), { recursive: true });
+    await fs.writeFile(localPath, buffer);
+  } else {
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: config.storage.bucket,
+        Key: storageKey,
+        Body: buffer,
+        ContentType: mimeType,
+        ContentLength: sizeBytes,
+      })
+    );
+  }
+
+  return {
+    storageKey,
+    mimeType,
+    sizeBytes,
+    fileName: file.originalname,
+  };
+}
+
+/**
+ * Processes and uploads a material receipt attached to a WorkLog.
+ * Images are compressed like job media; PDFs are uploaded as-is.
+ * storageKey format: jobs/<jobId>/receipts/<uuid>.<ext>
+ */
+export async function uploadReceipt(
+  file: Express.Multer.File,
+  jobId: string
+): Promise<UploadResult> {
+  const isImage = IMAGE_MIME_TYPES.has(file.mimetype);
+  let buffer: Buffer;
+  let mimeType: string;
+  let sizeBytes: number;
+
+  if (isImage) {
+    buffer = await sharp(file.buffer)
+      .resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80, progressive: true, mozjpeg: false })
+      .toBuffer();
+    mimeType = 'image/jpeg';
+    sizeBytes = buffer.length;
+  } else {
+    buffer = file.buffer;
+    mimeType = file.mimetype;
+    sizeBytes = file.size;
+  }
+
+  const ext = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'application/pdf' ? 'pdf' : (file.originalname.split('.').pop() ?? 'bin');
+  const storageKey = `jobs/${jobId}/receipts/${crypto.randomUUID()}.${ext}`;
+
   if (usesLocalStorage()) {
     const localPath = path.join(__dirname, '../../uploads', storageKey);
     await fs.mkdir(path.dirname(localPath), { recursive: true });

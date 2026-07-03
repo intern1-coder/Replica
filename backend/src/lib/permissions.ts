@@ -17,7 +17,7 @@ import { ROLE_PRESETS, OWNER_FLOOR } from './rolePermissions';
  * below and the frontend matrix renderer. `label` is for UI display.
  */
 export const PERMISSION_GROUPS = [
-  { resource: 'jobs', label: 'Jobs', actions: ['view', 'create', 'edit', 'delete', 'authorize'] },
+  { resource: 'jobs', label: 'Jobs', actions: ['view', 'create', 'edit', 'delete', 'authorize', 'complete'] },
   { resource: 'clients', label: 'Clients', actions: ['view', 'create', 'edit', 'delete'] },
   { resource: 'properties', label: 'Properties', actions: ['view', 'create', 'edit', 'delete'] },
   { resource: 'tenants', label: 'Tenants', actions: ['view', 'create', 'edit', 'delete'] },

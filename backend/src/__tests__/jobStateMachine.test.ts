@@ -34,12 +34,20 @@ describe('isTransitionAllowed', () => {
       expect(isTransitionAllowed(JobStatus.QUOTED, JobStatus.CANCELLED)).toBe(true);
     });
 
-    it('allows AUTHORISED → COMPLETED', () => {
-      expect(isTransitionAllowed(JobStatus.AUTHORISED, JobStatus.COMPLETED)).toBe(true);
+    it('allows AUTHORISED → PENDING_INVOICE', () => {
+      expect(isTransitionAllowed(JobStatus.AUTHORISED, JobStatus.PENDING_INVOICE)).toBe(true);
     });
 
     it('allows AUTHORISED → CANCELLED', () => {
       expect(isTransitionAllowed(JobStatus.AUTHORISED, JobStatus.CANCELLED)).toBe(true);
+    });
+
+    it('allows PENDING_INVOICE → COMPLETED', () => {
+      expect(isTransitionAllowed(JobStatus.PENDING_INVOICE, JobStatus.COMPLETED)).toBe(true);
+    });
+
+    it('allows PENDING_INVOICE → CANCELLED', () => {
+      expect(isTransitionAllowed(JobStatus.PENDING_INVOICE, JobStatus.CANCELLED)).toBe(true);
     });
   });
 
@@ -67,6 +75,10 @@ describe('isTransitionAllowed', () => {
 
     it('rejects QUOTED → COMPLETED (skips AUTHORISED)', () => {
       expect(isTransitionAllowed(JobStatus.QUOTED, JobStatus.COMPLETED)).toBe(false);
+    });
+
+    it('rejects AUTHORISED → COMPLETED (skips PENDING_INVOICE — Accounts sign-off)', () => {
+      expect(isTransitionAllowed(JobStatus.AUTHORISED, JobStatus.COMPLETED)).toBe(false);
     });
   });
 
@@ -137,11 +149,18 @@ describe('getAllowedTransitions', () => {
     expect(getAllowedTransitions(JobStatus.QUOTED)).toHaveLength(2);
   });
 
-  it('returns [COMPLETED, CANCELLED] for AUTHORISED', () => {
+  it('returns [PENDING_INVOICE, CANCELLED] for AUTHORISED', () => {
     expect(getAllowedTransitions(JobStatus.AUTHORISED)).toEqual(
-      expect.arrayContaining([JobStatus.COMPLETED, JobStatus.CANCELLED])
+      expect.arrayContaining([JobStatus.PENDING_INVOICE, JobStatus.CANCELLED])
     );
     expect(getAllowedTransitions(JobStatus.AUTHORISED)).toHaveLength(2);
+  });
+
+  it('returns [COMPLETED, CANCELLED] for PENDING_INVOICE', () => {
+    expect(getAllowedTransitions(JobStatus.PENDING_INVOICE)).toEqual(
+      expect.arrayContaining([JobStatus.COMPLETED, JobStatus.CANCELLED])
+    );
+    expect(getAllowedTransitions(JobStatus.PENDING_INVOICE)).toHaveLength(2);
   });
 
   it('returns [] for COMPLETED (terminal)', () => {

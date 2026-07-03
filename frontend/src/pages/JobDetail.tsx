@@ -17,7 +17,8 @@ const allowedTransitions: Record<string, string[]> = {
   TO_BE_CHECKED: ['CHECKED', 'CANCELLED'],
   CHECKED: ['QUOTED', 'CANCELLED'],
   QUOTED: ['AUTHORISED', 'CANCELLED'],
-  AUTHORISED: ['COMPLETED', 'CANCELLED'],
+  AUTHORISED: ['PENDING_INVOICE', 'CANCELLED'],
+  PENDING_INVOICE: ['COMPLETED', 'CANCELLED'],
   COMPLETED: [],
   CANCELLED: []
 };
@@ -188,6 +189,15 @@ export function JobDetail() {
               if (nextStatus === 'AUTHORISED' && !can('jobs:authorize')) {
                 return null;
               }
+              // Final sign-off is reserved for Accounts (jobs:complete) after
+              // the invoice has been sent.
+              if (nextStatus === 'COMPLETED' && !can('jobs:complete')) {
+                return null;
+              }
+
+              const label = nextStatus === 'PENDING_INVOICE'
+                ? 'Send to Accounts (Pending Invoice)'
+                : `Mark as ${nextStatus.replace(/_/g, ' ')}`;
 
               return (
                 <button
@@ -196,7 +206,7 @@ export function JobDetail() {
                   disabled={isUpdatingStatus || conflictError}
                   className={`button ${nextStatus === 'CANCELLED' ? 'danger' : 'primary'}`}
                 >
-                  Mark as {nextStatus.replace(/_/g, ' ')}
+                  {label}
                 </button>
               );
             })}

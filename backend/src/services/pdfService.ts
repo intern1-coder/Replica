@@ -37,7 +37,9 @@ let activePdfJobs = 0;
 const MAX_CONCURRENT_PDFS = 2;
 
 const getTemplate = async (templateName: string) => {
-  if (!partialsRegistered) {
+  // Re-read partials in dev so template edits apply without a server restart;
+  // cache them in production.
+  if (!partialsRegistered || process.env['NODE_ENV'] !== 'production') {
     await registerPartials();
     partialsRegistered = true;
   }

@@ -396,7 +396,20 @@ router.patch(
 
 router.patch(
   '/:id/status',
-  requirePermission('jobs:edit'),
+  // jobs:edit covers normal transitions; jobs:complete alone (e.g. ACCOUNTS,
+  // who are otherwise read-only) permits only the final → COMPLETED sign-off.
+  // The state machine re-validates the COMPLETED permission itself.
+  (req: Request, res: Response, next: NextFunction): void => {
+    const wantsComplete = req.body?.status === JobStatus.COMPLETED;
+    if (req.user!.can('jobs:edit') || (wantsComplete && req.user!.can('jobs:complete'))) {
+      next();
+      return;
+    }
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'You do not have permission to perform this action.',
+    });
+  },
   [
     param('id').isUUID(),
     body('status')
