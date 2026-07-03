@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nightly Postgres backup to S3.
-# Install (on the EC2 instance):
-#   sudo apt install -y awscli
+# Install (on the EC2 instance) — see docs/DEPLOY.md §11 (AWS CLI v2 via
+# awscli-exe-linux-aarch64.zip; the awscli apt package doesn't exist on 24.04):
 #   chmod +x /app/scripts/backup-db.sh
 #   crontab -e   ->   0 2 * * * /app/scripts/backup-db.sh >> /var/log/affinity-backup.log 2>&1
 #

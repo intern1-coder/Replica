@@ -61,7 +61,7 @@ No keepalive cron — AWS does not reclaim idle instances (that was an Oracle Fr
 ## Phase 3 — Verify end-to-end
 
 1. `curl https://yourdomain.com/api/health` → `{"status":"ok"}`.
-2. Log in via the browser.
+2. Log in via the browser. If using the seeded admin account, **change its password immediately** (avatar menu → change password) — the seed value is public in the repo.
 3. Upload a document → proves S3 credentials (check the object appears in the S3 console).
 4. Generate a completion-report PDF → proves Puppeteer fits in memory (watch `free -h` during generation).
 5. Trigger a password reset → proves SMTP.

@@ -158,6 +158,74 @@ export async function sendPasswordResetEmail(
 }
 
 /**
+ * Sends the welcome/invite email to a newly created member so they can set
+ * their own password. Uses the same single-use token flow as password reset.
+ *
+ * @param toEmail  - Recipient email address
+ * @param toName   - Recipient display name
+ * @param setupUrl - Full set-password URL containing the raw token
+ */
+export async function sendInviteEmail(
+  toEmail: string,
+  toName: string,
+  setupUrl: string
+): Promise<void> {
+  const from = `"${config.email.fromName}" <${config.email.from}>`;
+  const expiryHours = config.invite.expiresHours;
+
+  const info = await getTransporter().sendMail({
+    from,
+    to: `"${toName}" <${toEmail}>`,
+    subject: 'You have been added to Affinity Workspace — set your password',
+    text: [
+      `Hi ${toName},`,
+      '',
+      'An account has been created for you on Affinity Workspace.',
+      `Click the link below to set your password and log in. This link expires in ${expiryHours} hours and can only be used once.`,
+      '',
+      setupUrl,
+      '',
+      `After setting your password, log in with this email address (${toEmail}).`,
+      '',
+      '— Affinity Workspace',
+    ].join('\n'),
+    html: `
+      <!DOCTYPE html>
+      <html lang="en">
+        <head><meta charset="UTF-8" /><title>Welcome to Affinity Workspace</title></head>
+        <body style="font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;color:#111827;">
+          <h2 style="margin-bottom:4px;font-size:20px;">Welcome to Affinity Workspace</h2>
+          <p>Hi ${toName},</p>
+          <p>
+            An account has been created for you. Click the button below to set your
+            password. This link expires in <strong>${expiryHours} hours</strong> and
+            can only be used once.
+          </p>
+          <a href="${setupUrl}"
+             style="display:inline-block;padding:11px 22px;background:#1d4ed8;color:#fff;
+                    border-radius:6px;text-decoration:none;font-weight:600;margin:16px 0;font-size:15px;">
+            Set your password
+          </a>
+          <p style="font-size:13px;color:#6b7280;margin-top:4px;">
+            Or paste this URL into your browser:<br />
+            <a href="${setupUrl}" style="color:#1d4ed8;word-break:break-all;">${setupUrl}</a>
+          </p>
+          <p style="font-size:13px;color:#6b7280;">
+            After setting your password, log in with this email address (${toEmail}).
+          </p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+          <p style="font-size:12px;color:#9ca3af;">
+            If you were not expecting this invitation, please contact your administrator.
+          </p>
+        </body>
+      </html>
+    `,
+  });
+
+  logger.info('Invite email sent', { maskedTo: maskEmail(toEmail), messageId: info.messageId });
+}
+
+/**
  * Sends an alert email when the nightly database backup fails.
  * Recipient is configured via ALERT_EMAIL env var (falls back to EMAIL_FROM).
  *

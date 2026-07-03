@@ -291,16 +291,7 @@ export function PropertyList() {
       ) : (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
           {/* List Header */}
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: '2fr 1.5fr 1.5fr 0.75fr', 
-            gap: 'var(--space-md)', 
-            padding: 'var(--space-md) var(--space-xl)', 
-            borderBottom: '1px solid var(--color-border)',
-            color: 'var(--color-text-secondary)',
-            fontSize: '0.8125rem',
-            fontWeight: 500
-          }}>
+          <div className="list-header list-cols-properties">
             <div>Address</div>
             <div>Current Tenants</div>
             <div>Assigned Client</div>
@@ -318,19 +309,11 @@ export function PropertyList() {
                 <motion.li 
                   key={p.id} 
                   variants={listItem}
-                  style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: '2fr 1.5fr 1.5fr 0.75fr', 
-                    gap: 'var(--space-md)', 
-                    padding: 'var(--space-md) var(--space-xl)', 
-                    borderBottom: '1px solid var(--color-border)',
-                    alignItems: 'start',
-                    transition: 'background-color 150ms ease-out'
-                  }}
+                  className="list-row list-row--top list-cols-properties"
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-surface)'}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3" data-label="Address">
                     <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
                       <MapPin size={16} className="text-secondary" />
                     </div>
@@ -349,7 +332,7 @@ export function PropertyList() {
                     </div>
                   </div>
                   
-                  <div>
+                  <div data-label="Current Tenants">
                     <div className="flex" style={{ flexDirection: 'column', gap: '0.35rem' }}>
                       {p.lastTenants && p.lastTenants.length > 0 ? (
                         p.lastTenants.map(t => (
@@ -367,7 +350,7 @@ export function PropertyList() {
                     </div>
                   </div>
                   
-                  <div>
+                  <div data-label="Assigned Client">
                     {p.currentClient ? (
                       <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
                         <div className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
@@ -384,7 +367,7 @@ export function PropertyList() {
                     )}
                   </div>
 
-                  <div style={{ textAlign: 'right' }}>
+                  <div className="list-cell-action" style={{ textAlign: 'right' }}>
                     <motion.button
                       className="button secondary small flex items-center gap-2"
                       onClick={() => openEdit(p)}

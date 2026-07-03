@@ -204,16 +204,7 @@ export function JobList() {
         <div className="text-secondary" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading jobs...</div>
       ) : (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1.5fr 2fr 2fr 1.5fr 1fr',
-            gap: 'var(--space-md)',
-            padding: 'var(--space-md) var(--space-xl)',
-            borderBottom: '1px solid var(--color-border)',
-            color: 'var(--color-text-secondary)',
-            fontSize: '0.8125rem',
-            fontWeight: 500
-          }}>
+          <div className="list-header list-cols-jobs">
             <div>Job #</div>
             <div>Status</div>
             <div>Address</div>
@@ -233,24 +224,16 @@ export function JobList() {
                 <motion.li
                   key={j.id}
                   variants={listItem}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1.5fr 2fr 2fr 1.5fr 1fr',
-                    gap: 'var(--space-md)',
-                    padding: 'var(--space-md) var(--space-xl)',
-                    borderBottom: '1px solid var(--color-border)',
-                    alignItems: 'center',
-                    transition: 'background-color 150ms ease-out'
-                  }}
+                  className="list-row list-cols-jobs"
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-surface)'}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                 >
-                  <div className="tabular-nums">
+                  <div className="tabular-nums" data-label="Job #">
                     <Link to={`/jobs/${j.id}`} className="font-medium" style={{ fontSize: '1rem' }}>
                       #{j.sequence}
                     </Link>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div data-label="Status" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <span className={`status-badge ${j.status.toLowerCase()}`}>
                       {j.status.replace(/_/g, ' ')}
                     </span>
@@ -271,18 +254,18 @@ export function JobList() {
                       );
                     })()}
                   </div>
-                  <div className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
+                  <div className="flex items-center gap-2" data-label="Address" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
                     <MapPin size={16} className="text-muted" />
                     {j.property?.address || `Property #${j.propertyId.toString().substring(0, 8)}`}
                   </div>
-                  <div className="flex items-center gap-2 text-secondary" style={{ fontSize: '0.9375rem' }}>
+                  <div className="flex items-center gap-2 text-secondary" data-label="Client" style={{ fontSize: '0.9375rem' }}>
                     <User size={16} className="text-muted" />
                     {j.client?.name || `Client #${j.clientId.toString().substring(0, 8)}`}
                   </div>
-                  <div className="tabular-nums text-muted" style={{ fontSize: '0.875rem' }}>
+                  <div className="tabular-nums text-muted" data-label="Date Created" style={{ fontSize: '0.875rem' }}>
                     {new Date(j.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                   </div>
-                  <div style={{ textAlign: 'right' }}>
+                  <div className="list-cell-action" style={{ textAlign: 'right' }}>
                     <Link to={`/jobs/${j.id}`} style={{ textDecoration: 'none' }}>
                       <motion.button
                         className="button secondary small"

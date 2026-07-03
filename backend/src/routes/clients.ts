@@ -17,6 +17,8 @@ router.use(requireAuth);
 // Lists active clients. Supports optional fuzzy search via ?q=<query>.
 // Fuzzy search operates in-memory on the full active-client set — acceptable
 // at this scale (5 users, bounded number of clients).
+// ?includeInactive=true also returns soft-deleted clients, but only for members
+// holding clients:delete (Admin/Owner by default) — others silently get actives.
 
 router.get(
   '/',
@@ -24,18 +26,22 @@ router.get(
     query('q').optional().isString().trim(),
     query('page').optional().isInt({ min: 1 }).toInt(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+    query('includeInactive').optional().isBoolean().toBoolean(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { q } = req.query as { q?: string };
+      const includeInactive =
+        (req.query['includeInactive'] as unknown as boolean) === true &&
+        req.user!.can('clients:delete');
       const { page, limit, skip } = getPaginationParams(
         req.query as Record<string, string | undefined>
       );
 
       // Load all active clients for fuzzy search (small dataset — this is fine)
       const allClients = await prisma.client.findMany({
-        where: { deletedAt: null },
+        where: includeInactive ? {} : { deletedAt: null },
         orderBy: { name: 'asc' },
         select: {
           id: true,
@@ -44,6 +50,7 @@ router.get(
           phone: true,
           address: true,
           createdAt: true,
+          deletedAt: true,
           _count: { select: { jobs: { where: { deletedAt: null } } } },
         },
       });
@@ -227,6 +234,46 @@ router.get(
       res.json({
         properties: Array.from(propertyMap.values())
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── PATCH /api/clients/:id/restore ────────────────────────────────────────────
+// Reactivates a soft-deleted client. Same permission as deactivation.
+
+router.patch(
+  '/:id/restore',
+  requirePermission('clients:delete'),
+  [param('id').isUUID()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const existing = await prisma.client.findFirst({
+        where: { id: req.params['id'], deletedAt: { not: null } },
+      });
+
+      if (!existing) {
+        res.status(404).json({ error: 'Not Found', message: 'Inactive client not found.' });
+        return;
+      }
+
+      const updated = await prisma.client.update({
+        where: { id: req.params['id'] },
+        data: { deletedAt: null },
+      });
+
+      await logAudit({
+        entityType: 'Client',
+        entityId: updated.id,
+        action: AuditAction.UPDATE,
+        performedById: req.user!.id,
+        before: existing as any,
+        after: updated as any,
+      });
+
+      res.json(updated);
     } catch (err) {
       next(err);
     }

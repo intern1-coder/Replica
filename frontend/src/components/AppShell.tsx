@@ -12,6 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
+  Menu,
+  X,
   Hexagon,
   Moon,
   Sun,
@@ -83,6 +85,7 @@ export function AppShell() {
   const location = useLocation();
   const [theme, setTheme] = useState<'light' | 'dark'>(readStoredTheme);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [changePwOpen, setChangePwOpen] = useState(false);
   const [headerUserMenuOpen, setHeaderUserMenuOpen] = useState(false);
   const [sidebarUserMenuOpen, setSidebarUserMenuOpen] = useState(false);
@@ -104,6 +107,24 @@ export function AppShell() {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(isSidebarCollapsed));
   }, [isSidebarCollapsed]);
+
+  // Mobile drawer: close whenever the route changes
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.body.classList.add('mobile-nav-open');
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.classList.remove('mobile-nav-open');
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [mobileNavOpen]);
 
   const closeAllUserMenus = useCallback(() => {
     setHeaderUserMenuOpen(false);
@@ -159,10 +180,21 @@ export function AppShell() {
     return <Navigate to="/login" replace />;
   }
 
-  const sidebarClass = isSidebarCollapsed ? 'sidebar sidebar--collapsed' : 'sidebar';
+  const sidebarClass = [
+    'sidebar',
+    isSidebarCollapsed ? 'sidebar--collapsed' : '',
+    mobileNavOpen ? 'sidebar--open' : '',
+  ].filter(Boolean).join(' ');
 
   return (
     <div className="app-shell">
+      {mobileNavOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
       <nav className={sidebarClass} aria-label="Main navigation">
         <div className="sidebar-top">
           <div className="sidebar-header">
@@ -180,6 +212,14 @@ export function AppShell() {
               title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               {isSidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            </button>
+            <button
+              type="button"
+              className="sidebar-close-btn"
+              onClick={() => setMobileNavOpen(false)}
+              aria-label="Close menu"
+            >
+              <X size={20} />
             </button>
           </div>
 
@@ -249,6 +289,15 @@ export function AppShell() {
 
       <main className="main-content">
         <header className="app-header">
+          <button
+            type="button"
+            className="mobile-menu-btn"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open menu"
+            aria-expanded={mobileNavOpen}
+          >
+            <Menu size={22} />
+          </button>
           <div className="search-input-wrapper app-header-search">
             <Search size={18} />
             <input

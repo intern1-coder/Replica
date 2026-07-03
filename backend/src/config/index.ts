@@ -44,6 +44,12 @@ const config = {
     expiresMinutes: parseInt(process.env.PASSWORD_RESET_EXPIRES_MINUTES || '30', 10),
   },
 
+  // New-member invite links reuse the reset-token flow but live longer —
+  // invitees may not check email within the reset flow's short window.
+  invite: {
+    expiresHours: parseInt(process.env.INVITE_EXPIRES_HOURS || '72', 10),
+  },
+
   email: {
     host: requireEnv('SMTP_HOST'),
     port: parseInt(process.env.SMTP_PORT || '587', 10),

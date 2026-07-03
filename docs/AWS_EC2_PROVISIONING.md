@@ -2,6 +2,8 @@
 
 One project per instance. Cost-optimized for 5–10 users: **~$8–9/month total**.
 
+**Current production (provisioned 2026-07-03):** region `eu-west-2` (London, UK GDPR), Elastic IP `13.135.142.11`, domain `https://affinity.agentik360.com` (A record `affinity` at agentik360.com's Namecheap DNS), S3 bucket `affinity-media-vlookup-prod`, IAM user `affinity-app`.
+
 | Item | Choice | ~Cost/mo |
 |------|--------|----------|
 | Instance | t4g.micro (Graviton ARM64, 2 vCPU, 1GB RAM) | $6.50 |
