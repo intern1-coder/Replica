@@ -269,4 +269,40 @@ git push origin --delete fix/unify-brand-icons feature/pwa-and-client-restore fe
 git checkout master && git pull && git fetch --prune
 ```
 
-See also: `docs/CI.md` (branch workflow), `docs/DEPLOY.md` (ongoing deploy checklist).
+See also: `docs/CI.md` (branch workflow), `docs/DEPLOY.md` (ongoing deploy checklist), `.github/pull_request_template.md` (server commands shown on every new PR).
+
+---
+
+## 13. July 2026 session — UI/PDF fixes, repo cleanup, and deploy discipline
+
+**Where it happened:** Local dev + GitHub, July 2026 (PR #18, #19)
+
+### What we built (PR #18)
+
+| Area | Fix |
+|------|-----|
+| Property autocomplete | Stopped duplicate `/clients` / `/properties` requests (unstable `labelKey` in effect deps) |
+| Contractor dropdown | Dark-mode react-select theming (`reactSelectTheme.ts`) |
+| PDF footers | Removed inline footer from templates; Puppeteer footer only (one per page) |
+| PDF speed | Reuse Chromium browser, cache templates, parallel image fetch |
+| Auto logout | Only clear session on **401**; retry transient `/auth/me` failures |
+| Test data reset | `scripts/reset-test-data.ts` — wipes operational data, keeps users/settings |
+| Docker | `JWT_EXPIRES_IN` passed through `docker-compose.yml` |
+
+### What we fixed (repo / process)
+
+| Mistake | Fix |
+|---------|-----|
+| GitHub default branch was `feature/pdf-cleanups-engineers`, deploy used `master` | Changed default branch to **`master`** |
+| Same feature merged via two PRs (#16 then #17 “Master” sync) | **One PR → master only**; deleted stale remote branches |
+| Merged branches left on GitHub (confusing Branches page) | `git push origin --delete` for old feature/fix branches |
+| No server commands visible at PR time | Added `.github/pull_request_template.md` with copy-paste deploy block |
+| Deploy checklist said `git pull origin <branch>` | Fixed to **`git pull origin master`** always |
+
+### Rules
+
+> - **Merging a PR does not deploy production.** After every merge to `master`, SSH to the server and run the deploy block (in the PR template or `docs/DEPLOY.md`).
+> - **CI green ≠ deployed.** GitHub Actions tests the code; the EC2 box only updates when you `git pull` + rebuild there.
+> - **Delete the PR branch** after merge (`fix/…` / `docs/…` should not accumulate on GitHub).
+
+See also: PR #18, PR #19, `docs/CI.md`, `.github/pull_request_template.md`.
