@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build:
@@ -29,6 +27,13 @@ services:
       - STORAGE_BUCKET_NAME=${STORAGE_BUCKET_NAME}
       - STORAGE_ACCESS_KEY_ID=${STORAGE_ACCESS_KEY_ID}
       - STORAGE_SECRET_ACCESS_KEY=${STORAGE_SECRET_ACCESS_KEY}
+      # Bootstrap script (scripts/bootstrap-users.ts) — optional, used for initial admin setup
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:-}
+      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:-}
+      - SUPER_ADMIN_NAME=${SUPER_ADMIN_NAME:-Super Admin}
+      - CLIENT_ADMIN_EMAIL=${CLIENT_ADMIN_EMAIL:-}
+      - CLIENT_ADMIN_PASSWORD=${CLIENT_ADMIN_PASSWORD:-}
+      - CLIENT_ADMIN_NAME=${CLIENT_ADMIN_NAME:-Client Admin}
       # Puppeteer path is handled inside Dockerfile, but can be overridden if necessary
     depends_on:
       db:
