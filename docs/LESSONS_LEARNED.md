@@ -240,3 +240,33 @@ Bootstrap complete.
 ```
 
 See also: `docs/DEPLOY.md` §6, `backend/.env.example`, `backend/Dockerfile`.
+
+---
+
+## 12. Two “main” branches caused duplicate PRs and confused CI
+
+**Where it happened:** GitHub repo setup, July 2026 (through PR #17)
+
+**What went wrong:**
+
+1. **GitHub default branch was `feature/pdf-cleanups-engineers`** while production deploy, CI, and docs all used **`master`**. New PRs often targeted the wrong base; the same work was merged twice (e.g. PR #16 → `master`, then PR #17 “Master” → sync into `feature/pdf-cleanups-engineers`).
+
+2. **Long-lived feature branches were kept after merge** (`feature/super-admin-role`, `fix/unify-brand-icons`, etc.), cluttering the Branches page and suggesting open work when everything was already on `master`.
+
+3. **Looked like “2 pipelines for 1 change”.** CI on `pull_request` plus CI on `push` to `master` after merge is normal. The real waste was **two PRs** for the same feature because of the dual-branch habit.
+
+**Rules:**
+
+> - **One trunk:** `master` only. GitHub default branch = CI target = `git pull` on the server = deploy source. All three must match.
+> - **Short-lived branches:** `fix/…` or `feat/…` off `master` → **one PR into `master`** → merge → **delete the branch** (local + remote).
+> - **Never** open “sync `master` into feature/X” PRs. Never merge the same feature to two long-lived branches.
+> - Before creating a PR, confirm base branch is **`master`** (especially after changing the default branch in Settings).
+
+**Cleanup (one-time, after fixing default branch):**
+
+```bash
+git push origin --delete fix/unify-brand-icons feature/pwa-and-client-restore feature/super-admin-role feature/pdf-cleanups-engineers
+git checkout master && git pull && git fetch --prune
+```
+
+See also: `docs/CI.md` (branch workflow), `docs/DEPLOY.md` (ongoing deploy checklist).

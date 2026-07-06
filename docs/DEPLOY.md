@@ -355,7 +355,7 @@ Use this order every time you ship backend or auth changes:
 
 ```bash
 cd /app
-git pull origin <branch>          # 1. get latest code + migrations
+git pull origin master            # 1. get latest code + migrations (always master)
 
 cd /app/backend
 docker compose up -d --build      # 2. rebuild image (required for new scripts/source)
