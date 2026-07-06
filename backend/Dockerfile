@@ -58,4 +58,6 @@ EXPOSE 3000
 # For now, node is fine as Docker handles process supervision, but PM2 is requested in Phase 5.
 # If PM2 is used, we can install it globally and use pm2-runtime.
 # For standard Docker, node dist/server.js is preferred. We will let the ecosystem file or docker-compose decide.
-CMD ["node", "dist/server.js"]
+# Heap capped at 384 MB: the 1 GB production host also runs Postgres, Caddy and
+# Chromium; without a cap Node sizes its heap as if all host RAM were available.
+CMD ["node", "--max-old-space-size=384", "dist/server.js"]

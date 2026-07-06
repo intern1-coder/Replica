@@ -6,6 +6,9 @@ services:
     image: affinity-backend
     container_name: affinity_app
     restart: always
+    # Cap so a runaway request can't OOM the whole 1 GB host (Postgres/Caddy
+    # share it). Sized for Node (384 MB heap cap in Dockerfile) + Chromium PDF spikes.
+    mem_limit: 768m
     ports:
       - "3000:3000"
     environment:
@@ -44,6 +47,8 @@ services:
     image: postgres:15-alpine
     container_name: affinity_db
     restart: always
+    mem_limit: 256m
+    shm_size: 128mb
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
