@@ -6,6 +6,9 @@ WORKDIR /app
 # Install openssl for Prisma
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
+# Browsers are installed in the production stage, not here
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 # Copy package files
 COPY package*.json ./
 COPY prisma ./prisma/
@@ -27,20 +30,20 @@ FROM node:20-bookworm-slim AS production
 
 WORKDIR /app
 
-# Install production dependencies: chromium (for puppeteer), openssl (for Prisma), postgresql-client (for pg_dump backups)
+# Install production dependencies: openssl (for Prisma), postgresql-client (for pg_dump backups)
 RUN apt-get update && apt-get install -y \
-    chromium \
     openssl \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Set env variables for Puppeteer to use the installed Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
 # Copy built artifacts and production package files
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
+
+# Install Playwright's pinned Chromium + its system dependencies.
+# Debian's apt chromium crashes (SIGTRAP) on arm64/Graviton; Playwright ships
+# official linux-arm64 builds matched to the library version.
+RUN npx playwright install --with-deps chromium
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts ./scripts
