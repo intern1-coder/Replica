@@ -161,8 +161,9 @@ export function ClientList() {
           </h1>
           <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>Manage your client roster and contact information.</p>
         </div>
+      </div>
 
-        <div className="filter-bar" style={{ marginBottom: 0, flex: 1, justifyContent: 'flex-end' }}>
+      <div className="filter-bar">
           <div className="search-input-wrapper">
             <Search size={18} />
             <input
@@ -202,7 +203,6 @@ export function ClientList() {
           >
             <Plus size={18} /> {isFormOpen || editingId ? 'Cancel' : 'Add Client'}
           </motion.button>
-        </div>
       </div>
 
       {error && <div className="page-error">{error}</div>}

@@ -169,8 +169,9 @@ export function PropertyList() {
           </h1>
           <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>Manage your portfolio and tenant assignments.</p>
         </div>
-        
-        <div className="filter-bar" style={{ marginBottom: 0, flex: 1, justifyContent: 'flex-end' }}>
+      </div>
+
+      <div className="filter-bar">
           <div className="search-input-wrapper">
             <Search size={18} />
             <input 
@@ -197,7 +198,6 @@ export function PropertyList() {
           >
             <Plus size={18} /> {isFormOpen || editingId ? 'Cancel' : 'Add Property'}
           </motion.button>
-        </div>
       </div>
 
       {error && <div className="page-error">{error}</div>}

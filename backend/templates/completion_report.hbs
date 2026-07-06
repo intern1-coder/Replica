@@ -8,8 +8,14 @@
     body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; }
     .page { padding: 0; }
     .company-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 15px; border-bottom: 3px solid #6d28d9; margin-bottom: 20px; }
+    .company-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+    .company-logo { height: 52px; width: auto; display: block; }
     .company-name { font-size: 22px; font-weight: 700; color: #6d28d9; }
     .company-tagline { font-size: 10px; color: #6b7280; }
+    .company-meta { text-align: right; font-size: 10px; color: #6b7280; }
+    .company-footer { margin-top: 30px; padding-top: 15px; border-top: 2px solid #e5e7eb; text-align: center; font-size: 10px; color: #6b7280; }
+    .company-footer-line { margin: 4px 0; }
+    .company-footer a { color: #374151; text-decoration: none; }
     .report-title { background: #6d28d9; color: white; padding: 10px 15px; font-size: 16px; font-weight: 700; text-align: center; margin-bottom: 20px; border-radius: 4px; }
     .details-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
     .details-table th, .details-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
@@ -33,16 +39,7 @@
 </head>
 <body>
   <div class="page">
-    <div class="company-header">
-      <div>
-        <div class="company-name">Affinity Property Services</div>
-        <div class="company-tagline">Professional Property Maintenance & Management</div>
-      </div>
-      <div style="text-align: right; font-size: 10px; color: #6b7280;">
-        <div>Job #{{jobNumber}}</div>
-        <div>{{completedAt}}</div>
-      </div>
-    </div>
+    {{> _company_header accentColor="#6d28d9"}}
 
     <div class="report-title">Completion Report</div>
 
@@ -126,9 +123,9 @@
     {{> _image_grid title="Before (Diagnostic) Photos" images=diagnosticImages}}
     {{> _image_grid title="After (Completion) Photos" images=completionImages}}
 
-    <div style="margin-top: 30px; padding-top: 15px; border-top: 2px solid #e5e7eb;">
-      <p style="font-size: 11px; color: #6b7280;">Work completed to specification by Affinity Property Services.</p>
-    </div>
+    <p style="margin-top: 20px; font-size: 11px; color: #6b7280;">Work completed to specification by Affinity Property Services.</p>
+
+    {{> _company_footer}}
   </div>
 </body>
 </html>

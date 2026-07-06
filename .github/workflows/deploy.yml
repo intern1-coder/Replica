@@ -1,12 +1,11 @@
 name: Deploy to Production
 
+# Single-container deploy for 1GB EC2. Requires CI to have passed on master before running.
+# Do not use scripts/deploy.sh (blue-green) unless the instance is ≥2GB — see docs/ZERO_DOWNTIME.md.
+
 on:
   workflow_dispatch:
     inputs:
-      image_tag:
-        description: "Docker image tag to deploy"
-        required: false
-        default: "latest"
       environment:
         description: "Target environment"
         required: true
@@ -16,38 +15,8 @@ on:
           - production
 
 jobs:
-  preflight:
-    name: Pre-deploy checks
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: backend
-        run: npm ci
-
-      - name: Generate Prisma client
-        working-directory: backend
-        run: npx prisma generate
-
-      - name: TypeScript build check
-        working-directory: backend
-        run: npm run build
-
-      - name: PII-in-logs check
-        working-directory: backend
-        run: npm run check:log-pii
-
   deploy:
-    needs: preflight
+    name: Deploy (single-container)
     runs-on: ubuntu-latest
     environment: production
 
@@ -59,6 +28,6 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            export GHCR_OWNER=${{ github.repository_owner }}
-            export DATABASE_URL=$(grep DATABASE_URL /app/backend/.env | cut -d'=' -f2-)
-            /app/scripts/deploy.sh ${{ github.event.inputs.image_tag }}
+            cd /app && git pull origin master
+            chmod +x /app/scripts/deploy-single.sh
+            /app/scripts/deploy-single.sh
