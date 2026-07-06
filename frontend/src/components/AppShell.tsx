@@ -14,7 +14,6 @@ import {
   Search,
   Menu,
   X,
-  Hexagon,
   Moon,
   Sun,
   HardHat,
@@ -226,7 +225,7 @@ export function AppShell() {
           <div className="sidebar-header">
             <div className="sidebar-brand">
               <div className="sidebar-brand-mark">
-                <Hexagon size={24} color="var(--color-brand-text)" fill="var(--color-brand-text)" />
+                <img src="/logo.png" alt="" className="sidebar-brand-logo" />
               </div>
               <div className="sidebar-brand-name">Affinity</div>
             </div>
