@@ -351,6 +351,10 @@ The script removes stopped `affinity_app_blue`, `affinity_app_green`, and `affin
 
 ## Ongoing deploy checklist (code + schema changes)
 
+**When:** After every PR is merged to `master`. Merging on GitHub does **not** update the server — you must SSH and run this.
+
+The same block appears automatically in every new pull request (`.github/pull_request_template.md`).
+
 Use this order every time you ship backend or auth changes:
 
 ```bash

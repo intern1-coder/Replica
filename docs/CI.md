@@ -24,7 +24,9 @@ The GitHub Actions CI pipeline (`.github/workflows/ci.yml`) runs on every push a
 
 **CI runs twice per merge — that is normal:** once on the open PR, once on push to `master` after merge. That is not a duplicate pipeline bug.
 
-See `docs/LESSONS_LEARNED.md` §12 for what went wrong when default branch and deploy branch diverged.
+**Every new PR** shows a **“After merge — run on production server”** block (from [`.github/pull_request_template.md`](../.github/pull_request_template.md)). Copy-paste those commands in MobaXterm after merging.
+
+See `docs/LESSONS_LEARNED.md` §12–§13 for what went wrong when default branch and deploy branch diverged, and the July 2026 session log.
 
 ## Enabling Branch Protection on `master`
 
