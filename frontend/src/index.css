@@ -1,6 +1,6 @@
-/* Shared mobile breakpoint convention: 768px.
+/* Shared mobile breakpoint convention: 1024px.
    Media queries cannot read CSS variables, so use the literal
-   `@media (max-width: 768px)` everywhere mobile overrides are needed. */
+   `@media (max-width: 1024px)` everywhere mobile overrides are needed. */
 :root {
   /* Typography */
   --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;

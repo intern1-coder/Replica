@@ -26,6 +26,23 @@ import { ChangePasswordModal } from './ChangePasswordModal';
 
 const THEME_STORAGE_KEY = 'affinity_theme';
 const SIDEBAR_COLLAPSED_KEY = 'affinity_sidebar_collapsed';
+const MOBILE_NAV_BREAKPOINT = 1024;
+
+function useMobileNav(): boolean {
+  const [isMobileNav, setIsMobileNav] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${MOBILE_NAV_BREAKPOINT}px)`).matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_NAV_BREAKPOINT}px)`);
+    const onChange = (e: MediaQueryListEvent) => setIsMobileNav(e.matches);
+    mq.addEventListener('change', onChange);
+    setIsMobileNav(mq.matches);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  return isMobileNav;
+}
 
 function readStoredTheme(): 'light' | 'dark' {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
@@ -86,6 +103,7 @@ export function AppShell() {
   const [theme, setTheme] = useState<'light' | 'dark'>(readStoredTheme);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readSidebarCollapsed);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const isMobileNav = useMobileNav();
   const [changePwOpen, setChangePwOpen] = useState(false);
   const [headerUserMenuOpen, setHeaderUserMenuOpen] = useState(false);
   const [sidebarUserMenuOpen, setSidebarUserMenuOpen] = useState(false);
@@ -105,8 +123,14 @@ export function AppShell() {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(isSidebarCollapsed));
-  }, [isSidebarCollapsed]);
+    if (!isMobileNav) {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(isSidebarCollapsed));
+    }
+  }, [isSidebarCollapsed, isMobileNav]);
+
+  useEffect(() => {
+    if (isMobileNav) setMobileNavOpen(false);
+  }, [isMobileNav]);
 
   // Mobile drawer: close whenever the route changes
   useEffect(() => {
@@ -180,9 +204,11 @@ export function AppShell() {
     return <Navigate to="/login" replace />;
   }
 
+  const sidebarCollapsed = isMobileNav ? false : isSidebarCollapsed;
+
   const sidebarClass = [
     'sidebar',
-    isSidebarCollapsed ? 'sidebar--collapsed' : '',
+    sidebarCollapsed ? 'sidebar--collapsed' : '',
     mobileNavOpen ? 'sidebar--open' : '',
   ].filter(Boolean).join(' ');
 
@@ -262,25 +288,25 @@ export function AppShell() {
 
         <div className="sidebar-nav">
           <div className="sidebar-section-label">Menu</div>
-          <NavLink collapsed={isSidebarCollapsed} to="/" icon={<LayoutDashboard size={20} />} label="Overview" />
-          <NavLink collapsed={isSidebarCollapsed} to="/jobs" icon={<ClipboardList size={20} />} label="Job Pipeline" />
-          <NavLink collapsed={isSidebarCollapsed} to="/logistics" icon={<Calendar size={20} />} label="Logistics" />
-          <NavLink collapsed={isSidebarCollapsed} to="/clients" icon={<Users size={20} />} label="Clients" />
-          <NavLink collapsed={isSidebarCollapsed} to="/properties" icon={<Building2 size={20} />} label="Properties" />
+          <NavLink collapsed={sidebarCollapsed} to="/" icon={<LayoutDashboard size={20} />} label="Overview" />
+          <NavLink collapsed={sidebarCollapsed} to="/jobs" icon={<ClipboardList size={20} />} label="Job Pipeline" />
+          <NavLink collapsed={sidebarCollapsed} to="/logistics" icon={<Calendar size={20} />} label="Logistics" />
+          <NavLink collapsed={sidebarCollapsed} to="/clients" icon={<Users size={20} />} label="Clients" />
+          <NavLink collapsed={sidebarCollapsed} to="/properties" icon={<Building2 size={20} />} label="Properties" />
           {canEngineersView && (
             <>
               <div className="sidebar-section-label sidebar-section-label--group">Team</div>
-              <NavLink collapsed={isSidebarCollapsed} to="/engineers" icon={<HardHat size={20} />} label="Engineers" />
+              <NavLink collapsed={sidebarCollapsed} to="/engineers" icon={<HardHat size={20} />} label="Engineers" />
             </>
           )}
           {(canUsersView || can('settings:edit')) && (
             <>
               <div className="sidebar-section-label sidebar-section-label--group">Admin</div>
               {canUsersView && (
-                <NavLink collapsed={isSidebarCollapsed} to="/team" icon={<Users size={20} />} label="Team Access" />
+                <NavLink collapsed={sidebarCollapsed} to="/team" icon={<Users size={20} />} label="Team Access" />
               )}
               {can('settings:edit') && (
-                <NavLink collapsed={isSidebarCollapsed} to="/settings" icon={<Settings size={20} />} label="Settings" />
+                <NavLink collapsed={sidebarCollapsed} to="/settings" icon={<Settings size={20} />} label="Settings" />
               )}
             </>
           )}

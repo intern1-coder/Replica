@@ -123,39 +123,34 @@ export function Engineers() {
 
       {error && <div className="page-error">{error}</div>}
 
-      <div className="section-card">
+      <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
         {isLoading ? (
-          <p>Loading…</p>
+          <p style={{ padding: 'var(--space-md)' }}>Loading…</p>
         ) : (
-          <div className="table-scroll">
-          <table className="dense-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Email</th>
-                <th style={{ textAlign: 'right' }}>Hourly Rate</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            <div className="list-header list-cols-engineers">
+              <div>Name</div>
+              <div>Phone</div>
+              <div>Email</div>
+              <div style={{ textAlign: 'right' }}>Hourly Rate</div>
+              <div style={{ textAlign: 'right' }}>Actions</div>
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {engineers.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="empty-state text-center" style={{ border: 'none' }}>
-                    No engineers yet. Click "Add Engineer" to get started.
-                  </td>
-                </tr>
+                <li className="empty-state text-center" style={{ padding: 'var(--space-xl)' }}>
+                  No engineers yet. Click &quot;Add Engineer&quot; to get started.
+                </li>
               )}
               {engineers.map((eng) => (
-                <tr key={eng.id}>
-                  <td className="font-medium">{eng.name}</td>
-                  <td className="text-secondary">{eng.phone || '—'}</td>
-                  <td className="text-secondary">{eng.email || '—'}</td>
-                  <td className="tabular-nums" style={{ textAlign: 'right' }}>
+                <li key={eng.id} className="list-row list-cols-engineers">
+                  <div className="font-medium" data-label="Name">{eng.name}</div>
+                  <div className="text-secondary" data-label="Phone">{eng.phone || '—'}</div>
+                  <div className="text-secondary" data-label="Email">{eng.email || '—'}</div>
+                  <div className="tabular-nums" data-label="Hourly Rate">
                     {eng.hourlyRate != null ? `£${Number(eng.hourlyRate).toFixed(2)}/hr` : '—'}
-                  </td>
-                  <td>
-                    <div className="flex gap-2 justify-end">
+                  </div>
+                  <div className="list-cell-action" data-label="Actions">
+                    <div className="flex gap-2">
                       <button onClick={() => openEdit(eng)} className="button secondary small flex items-center gap-1">
                         <Edit size={12} /> Edit
                       </button>
@@ -163,12 +158,11 @@ export function Engineers() {
                         <Trash2 size={12} /> Deactivate
                       </button>
                     </div>
-                  </td>
-                </tr>
+                  </div>
+                </li>
               ))}
-            </tbody>
-          </table>
-          </div>
+            </ul>
+          </>
         )}
       </div>
 

@@ -145,82 +145,74 @@ export function UsersList() {
         <p>Loading team…</p>
       ) : (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div className="table-scroll">
-          <table style={{ margin: 0, border: 'none', borderRadius: 0, boxShadow: 'none' }}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Customised</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m, idx) => {
-                const overrideCount = m.permissionOverrides
-                  ? Object.keys(m.permissionOverrides).length
-                  : 0;
-                return (
-                  <tr key={m.id} className={`stagger-${(idx % 5) + 1}`}>
-                    <td className="font-medium">{m.name}</td>
-                    <td className="text-secondary">
-                      {m.email}
-                      {m.email.endsWith('@noemail.local') && (
-                        <span className="status-badge" title="Placeholder address — set a real email so this member can log in" style={{ marginLeft: 6 }}>no email</span>
-                      )}
-                      {m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
-                        <span className="status-badge quoted" title="Member has not set a password yet" style={{ marginLeft: 6 }}>invite pending</span>
-                      )}
-                    </td>
-                    <td><span className="status-badge quoted">{m.role}</span></td>
-                    <td>
-                      {overrideCount > 0 ? (
-                        <span className="status-badge authorised">{overrideCount} override{overrideCount > 1 ? 's' : ''}</span>
-                      ) : (
-                        <span className="text-muted">Role defaults</span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2" style={{ justifyContent: 'flex-end' }}>
-                        {canEdit && (
-                          <button className="button secondary" title="Edit & permissions" onClick={() => setEditId(m.id)}>
-                            <Pencil size={16} />
-                          </button>
-                        )}
-                        {canCreate && m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
-                          <button className="button secondary" title="Resend invite email" onClick={() => handleResendInvite(m)}>
-                            <MailPlus size={16} />
-                          </button>
-                        )}
-                        {canEdit && (
-                          <button className="button secondary" title="Reset password" onClick={() => setResetId(m.id)}>
-                            <KeyRound size={16} />
-                          </button>
-                        )}
-                        {canDelete && (
-                          <button className="button danger" title="Deactivate" onClick={() => handleDeactivate(m)}>
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {members.length === 0 && (
-                <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: 'var(--space-xl)' }}>
-                    <div className="empty-state" style={{ border: 'none' }}>
-                      <Users size={48} className="text-muted" style={{ opacity: 0.5, marginBottom: 'var(--space-sm)' }} />
-                      <p className="font-medium" style={{ margin: 0 }}>No members found</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <div className="list-header list-cols-team">
+            <div>Name</div>
+            <div>Email</div>
+            <div>Role</div>
+            <div>Customised</div>
+            <div style={{ textAlign: 'right' }}>Actions</div>
           </div>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {members.map((m) => {
+              const overrideCount = m.permissionOverrides
+                ? Object.keys(m.permissionOverrides).length
+                : 0;
+              return (
+                <li key={m.id} className="list-row list-cols-team">
+                  <div className="font-medium" data-label="Name">{m.name}</div>
+                  <div className="text-secondary" data-label="Email">
+                    {m.email}
+                    {m.email.endsWith('@noemail.local') && (
+                      <span className="status-badge" title="Placeholder address — set a real email so this member can log in" style={{ marginLeft: 6 }}>no email</span>
+                    )}
+                    {m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
+                      <span className="status-badge quoted" title="Member has not set a password yet" style={{ marginLeft: 6 }}>invite pending</span>
+                    )}
+                  </div>
+                  <div data-label="Role"><span className="status-badge quoted">{m.role}</span></div>
+                  <div data-label="Customised">
+                    {overrideCount > 0 ? (
+                      <span className="status-badge authorised">{overrideCount} override{overrideCount > 1 ? 's' : ''}</span>
+                    ) : (
+                      <span className="text-muted">Role defaults</span>
+                    )}
+                  </div>
+                  <div className="list-cell-action" data-label="Actions">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {canEdit && (
+                        <button className="button secondary" title="Edit & permissions" onClick={() => setEditId(m.id)}>
+                          <Pencil size={16} /> Edit
+                        </button>
+                      )}
+                      {canCreate && m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
+                        <button className="button secondary" title="Resend invite email" onClick={() => handleResendInvite(m)}>
+                          <MailPlus size={16} /> Resend
+                        </button>
+                      )}
+                      {canEdit && (
+                        <button className="button secondary" title="Reset password" onClick={() => setResetId(m.id)}>
+                          <KeyRound size={16} /> Reset
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button className="button danger" title="Deactivate" onClick={() => handleDeactivate(m)}>
+                          <Trash2 size={16} /> Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+            {members.length === 0 && (
+              <li style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>
+                <div className="empty-state" style={{ border: 'none' }}>
+                  <Users size={48} className="text-muted" style={{ opacity: 0.5, marginBottom: 'var(--space-sm)' }} />
+                  <p className="font-medium" style={{ margin: 0 }}>No members found</p>
+                </div>
+              </li>
+            )}
+          </ul>
         </div>
       )}
 
