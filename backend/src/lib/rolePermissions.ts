@@ -6,7 +6,7 @@
 // Members start from their role preset and may have individual keys overridden
 // via User.permissionOverrides.
 //
-// ADMIN and OWNER are full-access and handled directly in getEffectivePermissions
+// ADMIN, SUPER_ADMIN, and OWNER are full-access and handled directly in getEffectivePermissions
 // (so they always inherit any newly-added permission key automatically).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -65,6 +65,12 @@ export const ROLE_PRESETS: Record<'PM' | 'ACCOUNTS' | 'CONTRACTOR', PermissionKe
   ACCOUNTS,
   CONTRACTOR,
 };
+
+// Permissions a SUPER_ADMIN can never lose via overrides (anti-lockout floor).
+export const SUPER_ADMIN_FLOOR: PermissionKey[] = [
+  'users:view', 'users:create', 'users:edit', 'users:delete',
+  'settings:view', 'settings:edit',
+];
 
 // Permissions an OWNER can never lose via overrides (anti-lockout floor).
 export const OWNER_FLOOR: PermissionKey[] = [

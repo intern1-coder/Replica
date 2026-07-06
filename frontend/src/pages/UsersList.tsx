@@ -21,7 +21,13 @@ interface PermGroup {
   actions: string[];
 }
 
-const ROLES = ['PM', 'ADMIN', 'ACCOUNTS', 'OWNER', 'CONTRACTOR'];
+const ADMIN_ASSIGNABLE_ROLES = ['PM', 'ADMIN', 'ACCOUNTS', 'CONTRACTOR'];
+const SUPER_ADMIN_ASSIGNABLE_ROLES = ['SUPER_ADMIN', 'PM', 'ADMIN', 'ACCOUNTS', 'OWNER', 'CONTRACTOR'];
+
+function assignableRoles(viewerRole: string | undefined): string[] {
+  if (viewerRole === 'SUPER_ADMIN') return SUPER_ADMIN_ASSIGNABLE_ROLES;
+  return ADMIN_ASSIGNABLE_ROLES;
+}
 
 export function UsersList() {
   const { can, socket, user } = useAuth();
@@ -221,6 +227,7 @@ export function UsersList() {
       {addOpen && (
         <AddMemberModal
           groups={groups}
+          roles={assignableRoles(user?.role)}
           onClose={() => setAddOpen(false)}
           onCreated={(message) => { setAddOpen(false); setNotice(message); load(); }}
         />
@@ -229,6 +236,7 @@ export function UsersList() {
         <EditMemberModal
           memberId={editId}
           groups={groups}
+          roles={assignableRoles(user?.role)}
           onClose={() => setEditId(null)}
           onSaved={() => { setEditId(null); load(); }}
         />
@@ -311,7 +319,7 @@ function PermissionMatrix({
 
 // ── Add member ─────────────────────────────────────────────────────────────────
 
-function AddMemberModal({ groups, onClose, onCreated }: { groups: PermGroup[]; onClose: () => void; onCreated: (message: string) => void }) {
+function AddMemberModal({ groups, roles, onClose, onCreated }: { groups: PermGroup[]; roles: string[]; onClose: () => void; onCreated: (message: string) => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('PM');
@@ -367,7 +375,7 @@ function AddMemberModal({ groups, onClose, onCreated }: { groups: PermGroup[]; o
         <div className="form-row">
           <label className="form-label">Role</label>
           <select value={role} onChange={(e) => setRole(e.target.value)}>
-            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            {roles.map((r) => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
           </select>
         </div>
         <div className="form-row">
@@ -392,7 +400,7 @@ function AddMemberModal({ groups, onClose, onCreated }: { groups: PermGroup[]; o
 
 // ── Edit member (profile + matrix) ─────────────────────────────────────────────
 
-function EditMemberModal({ memberId, groups, onClose, onSaved }: { memberId: string; groups: PermGroup[]; onClose: () => void; onSaved: () => void }) {
+function EditMemberModal({ memberId, groups, roles, onClose, onSaved }: { memberId: string; groups: PermGroup[]; roles: string[]; onClose: () => void; onSaved: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -470,7 +478,7 @@ function EditMemberModal({ memberId, groups, onClose, onSaved }: { memberId: str
             <div className="form-row" style={{ minWidth: 140 }}>
               <label className="form-label">Role</label>
               <select value={role} onChange={(e) => setRole(e.target.value)}>
-                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                {roles.map((r) => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
               </select>
             </div>
           </div>

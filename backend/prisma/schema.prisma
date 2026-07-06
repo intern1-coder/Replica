@@ -18,6 +18,7 @@ datasource db {
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum Role {
+  SUPER_ADMIN
   PM
   ADMIN
   ACCOUNTS

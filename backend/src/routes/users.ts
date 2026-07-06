@@ -13,6 +13,11 @@ import {
   sanitizeOverrides,
 } from '../lib/permissions';
 import { emitToAll, emitUserPermissionsChanged } from '../lib/socket';
+import {
+  canAssignRole,
+  canManageMember,
+  shouldHideFromTeamList,
+} from '../lib/roleHierarchy';
 
 const router = Router();
 
@@ -60,14 +65,21 @@ router.get(
     try {
       const { role } = req.query;
 
+      const actorRole = req.user!.role;
+
       const where: Prisma.UserWhereInput = { deletedAt: null };
       if (role) {
-        if (Object.values(Role).includes(role as Role)) {
-          where.role = role as Role;
-        } else {
+        if (!Object.values(Role).includes(role as Role)) {
           res.json([]);
           return;
         }
+        if (actorRole !== Role.SUPER_ADMIN && role === Role.SUPER_ADMIN) {
+          res.json([]);
+          return;
+        }
+        where.role = role as Role;
+      } else if (actorRole !== Role.SUPER_ADMIN) {
+        where.role = { not: Role.SUPER_ADMIN };
       }
 
       const users = await prisma.user.findMany({
@@ -104,6 +116,11 @@ router.get(
       });
 
       if (!member) {
+        res.status(404).json({ error: 'Not Found', message: 'Member not found.' });
+        return;
+      }
+
+      if (shouldHideFromTeamList(member.role, req.user!.role)) {
         res.status(404).json({ error: 'Not Found', message: 'Member not found.' });
         return;
       }
@@ -156,6 +173,15 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { name, email, role, password, permissionOverrides, canAuthorizeJobs } = req.body;
+      const actorRole = req.user!.role;
+
+      if (!canAssignRole(actorRole, role as Role)) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'You do not have permission to assign that role.',
+        });
+        return;
+      }
 
       const data: Prisma.UserCreateInput = {
         name,
@@ -231,6 +257,41 @@ router.patch(
         return;
       }
 
+      const actorRole = req.user!.role;
+
+      if (!canManageMember(actorRole, existing.role)) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'You do not have permission to edit this member.',
+        });
+        return;
+      }
+
+      if (role !== undefined && !canAssignRole(actorRole, role as Role)) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'You do not have permission to assign that role.',
+        });
+        return;
+      }
+
+      if (
+        existing.role === Role.SUPER_ADMIN &&
+        role !== undefined &&
+        role !== Role.SUPER_ADMIN
+      ) {
+        const superAdminCount = await prisma.user.count({
+          where: { role: Role.SUPER_ADMIN, deletedAt: null },
+        });
+        if (superAdminCount <= 1) {
+          res.status(400).json({
+            error: 'Bad Request',
+            message: 'Cannot demote the last remaining Super Admin.',
+          });
+          return;
+        }
+      }
+
       const data: Prisma.UserUpdateInput = {};
       if (name !== undefined) data.name = name;
       if (email !== undefined) data.email = email;
@@ -284,10 +345,10 @@ router.post(
     try {
       const member = await prisma.user.findFirst({
         where: { id: req.params['id'], deletedAt: null },
-        select: { id: true, email: true, name: true, passwordHash: true },
+        select: { id: true, email: true, name: true, passwordHash: true, role: true },
       });
 
-      if (!member) {
+      if (!member || shouldHideFromTeamList(member.role, req.user!.role)) {
         res.status(404).json({ error: 'Not Found', message: 'Member not found.' });
         return;
       }
@@ -347,6 +408,14 @@ router.post(
         return;
       }
 
+      if (!canManageMember(req.user!.role, existing.role)) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'You do not have permission to reset this member\'s password.',
+        });
+        return;
+      }
+
       await prisma.user.update({
         where: { id },
         data: { passwordHash: await hashPassword(password), tokenVersion: { increment: 1 } },
@@ -382,6 +451,27 @@ router.delete(
       if (!existing) {
         res.status(404).json({ error: 'Not Found', message: 'Member not found.' });
         return;
+      }
+
+      if (!canManageMember(req.user!.role, existing.role)) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'You do not have permission to deactivate this member.',
+        });
+        return;
+      }
+
+      if (existing.role === Role.SUPER_ADMIN) {
+        const superAdminCount = await prisma.user.count({
+          where: { role: Role.SUPER_ADMIN, deletedAt: null },
+        });
+        if (superAdminCount <= 1) {
+          res.status(400).json({
+            error: 'Bad Request',
+            message: 'Cannot deactivate the last remaining Super Admin.',
+          });
+          return;
+        }
       }
 
       if (existing.role === Role.OWNER) {

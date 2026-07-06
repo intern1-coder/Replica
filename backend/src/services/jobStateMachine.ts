@@ -221,7 +221,7 @@ async function notifyAccountsOfPendingInvoice(jobId: string, performedById: stri
   emitReminderChanged(jobId);
 
   const accountsUsers = await prisma.user.findMany({
-    where: { role: { in: [Role.ACCOUNTS, Role.ADMIN, Role.OWNER] }, deletedAt: null },
+    where: { role: { in: [Role.ACCOUNTS, Role.ADMIN, Role.OWNER, Role.SUPER_ADMIN] }, deletedAt: null },
     select: { id: true },
   });
   for (const u of accountsUsers) {

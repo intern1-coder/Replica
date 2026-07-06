@@ -17,10 +17,11 @@ Affinity runs job/property/contractor tracking off a spreadsheet ("MLDB") plus a
 
 | Role | Capability |
 |---|---|
+| `SUPER_ADMIN` | Developer-only full access. Manages all users including client ADMINs. Hidden from client team lists. |
+| `ADMIN` | Full team-dashboard access + user management for PM/ACCOUNTS/CONTRACTOR roles. |
 | `PM` | Primary data-entry role — creates/advances jobs, logs work, uploads media, logs comms, generates documents. Sole gatekeeper for all state changes. |
-| `ADMIN` | All PM capabilities + user management + settings. |
 | `ACCOUNTS` | Read access to P&L and job data for financial reporting. |
-| `OWNER` | Read-only overview. |
+| `OWNER` | Legacy role — full access with anti-lockout floor. Assignable only by SUPER_ADMIN. |
 | `CONTRACTOR` | Schema placeholder only — **no contractor-facing login or UI in this version.** All contractor data is entered by the PM. |
 
 No public signup. Users are provisioned by an admin directly in the system.
