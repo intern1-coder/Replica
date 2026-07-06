@@ -1,4 +1,4 @@
-import puppeteer, { Browser } from 'puppeteer-core';
+import { chromium, Browser } from 'playwright';
 import Handlebars from 'handlebars';
 import path from 'path';
 import fs from 'fs/promises';
@@ -38,25 +38,22 @@ let browserLaunchPromise: Promise<Browser> | null = null;
 let activePdfJobs = 0;
 const MAX_CONCURRENT_PDFS = 2;
 
-function getExecutablePath(): string {
-  return (
-    config.puppeteer.executablePath ||
-    (process.platform === 'win32'
-      ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-      : process.platform === 'darwin'
-      ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-      : '/usr/bin/google-chrome')
-  );
-}
-
 async function getBrowser(): Promise<Browser> {
-  if (browserInstance?.connected) {
+  if (browserInstance?.isConnected()) {
     return browserInstance;
   }
 
   if (!browserLaunchPromise) {
-    browserLaunchPromise = puppeteer
-      .launch({ executablePath: getExecutablePath(), args: CHROMIUM_ARGS })
+    // Uses Playwright's bundled Chromium (installed via `npx playwright install chromium`),
+    // which ships official linux-arm64 builds — Debian's apt chromium crashes on Graviton.
+    // PUPPETEER_EXECUTABLE_PATH still overrides for local system-Chrome setups.
+    browserLaunchPromise = chromium
+      .launch({
+        args: CHROMIUM_ARGS,
+        ...(config.puppeteer.executablePath
+          ? { executablePath: config.puppeteer.executablePath }
+          : {}),
+      })
       .then((browser) => {
         browserInstance = browser;
         browserLaunchPromise = null;
@@ -165,7 +162,7 @@ export async function generatePdf(templateName: string, data: any): Promise<Buff
       await page.close().catch(() => {});
     }
   } catch (err) {
-    logger.error('Puppeteer failed to launch or generate PDF (likely missing Chrome/executablePath). Generating dummy fallback PDF.', {
+    logger.error('Chromium failed to launch or generate PDF (run `npx playwright install chromium` if missing). Generating dummy fallback PDF.', {
       error: err instanceof Error ? err.message : String(err),
     });
     return Buffer.from(

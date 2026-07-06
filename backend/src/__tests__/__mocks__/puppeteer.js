@@ -1,9 +1,13 @@
 module.exports = {
-  launch: async () => ({
-    newPage: async () => ({
-      setContent: async () => {},
-      pdf: async () => Buffer.from('mock-pdf-content'),
+  chromium: {
+    launch: async () => ({
+      isConnected: () => true,
+      newPage: async () => ({
+        setContent: async () => {},
+        pdf: async () => Buffer.from('mock-pdf-content'),
+        close: async () => {},
+      }),
+      close: async () => {},
     }),
-    close: async () => {},
-  }),
+  },
 };
