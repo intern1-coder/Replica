@@ -84,14 +84,82 @@ STORAGE_SECRET_ACCESS_KEY=<iam-secret-access-key>
 
 # Alerts
 ALERT_EMAIL=ops@yourdomain.com
+
+# Admin bootstrap (scripts/bootstrap-users.ts) — server only, never commit real passwords
+SUPER_ADMIN_EMAIL=it@vlookup.co.in
+SUPER_ADMIN_PASSWORD=<super-admin-password-min-8-chars>
+SUPER_ADMIN_NAME=Developer Admin
+CLIENT_ADMIN_EMAIL=fahd@affinityproperty.co.uk
+CLIENT_ADMIN_PASSWORD=<client-admin-password-min-8-chars>
+CLIENT_ADMIN_NAME=Fahd
 EOF
 ```
 
 Generate a strong JWT secret: `openssl rand -hex 32` · database password: `openssl rand -hex 16`
 
+**Admin bootstrap vars:** Used only when running `scripts/bootstrap-users.ts` inside Docker. They are **not** used for day-to-day login — passwords live in the database after bootstrap. See §6 and `docs/LESSONS_LEARNED.md` §11.
+
 ---
 
-## 4. Build the Frontend
+## 4. Run Database Migrations
+
+```bash
+cd /app/backend
+docker compose run --rm app npx prisma migrate deploy
+```
+
+Expect output like `Applying migration \`20260706100000_add_super_admin_role\`` when a new migration
+ships. If you see **fewer migrations than the repo** (e.g. 6 instead of 7) and "No pending migrations",
+you have **not pulled the latest code** — `git pull` first, then re-run this step.
+
+---
+
+## 5. Start / Rebuild the Backend Stack
+
+```bash
+cd /app/backend
+docker compose up -d --build
+# Verify backend is up
+curl http://localhost:3000/api/health
+```
+
+**Always `--build` after pulling backend changes** (Dockerfile, source, or new `scripts/` files).
+A plain `docker compose up -d` reuses the old image and will miss new files such as
+`scripts/bootstrap-users.ts`.
+
+---
+
+## 6. Bootstrap Super Admin + Client Admin (first deploy or password reset)
+
+Run **inside the app container** (not on the host with `npm run bootstrap:users`):
+
+```bash
+cd /app/backend
+docker compose exec app npx tsx scripts/bootstrap-users.ts
+```
+
+Expected output:
+
+```
+✓ Super Admin: it@vlookup.co.in (SUPER_ADMIN)
+✓ Client Admin: fahd@affinityproperty.co.uk (ADMIN)
+Bootstrap complete.
+```
+
+**Requirements:**
+
+| Requirement | Why |
+|---|---|
+| `SUPER_ADMIN_*` and `CLIENT_ADMIN_*` in `/app/backend/.env` | Script reads env vars; also listed in `docker-compose.yml` so the running container sees them |
+| Migration applied first | `SUPER_ADMIN` role must exist in the DB enum before bootstrap |
+| Image rebuilt with `scripts/` copied | Dockerfile production stage must `COPY --from=builder /app/scripts ./scripts` |
+
+**Do not re-run** after users have changed passwords unless you intentionally want to reset
+those two accounts back to the `.env` values.
+
+---
+
+## 7. Build the Frontend
 
 ```bash
 cd /app/frontend
@@ -105,29 +173,15 @@ app calls relative `/api` and `/socket.io`, which Caddy proxies to the backend
 on the same origin. Only set `VITE_API_URL` (in `/app/frontend/.env`) before
 building if the API is hosted on a separate domain — see `frontend/.env.example`.
 
----
-
-## 5. Run Database Migrations
+After rebuilding, reload Caddy if the site still shows old assets:
 
 ```bash
-cd /app/backend
-docker compose run --rm app npx prisma migrate deploy
+sudo caddy reload --config /app/Caddyfile
 ```
 
 ---
 
-## 6. Start the Backend Stack
-
-```bash
-cd /app/backend
-docker compose up -d
-# Verify backend is up
-curl http://localhost:3000/api/health
-```
-
----
-
-## 7. Start Caddy
+## 8. Start Caddy
 
 ```bash
 # The Caddyfile imports /app/active-upstream.caddy (written by the blue-green
@@ -142,7 +196,7 @@ sudo DOMAIN=$DOMAIN caddy start --config /app/Caddyfile
 
 ---
 
-## 8. Verify
+## 9. Verify
 
 ```bash
 curl https://yourdomain.com/api/health
@@ -153,7 +207,7 @@ Also open `https://yourdomain.com` in a browser and confirm the frontend loads.
 
 ---
 
-## 9. Enable Caddy as a systemd Service (survives reboots)
+## 10. Enable Caddy as a systemd Service (survives reboots)
 
 ```bash
 # Write an environment file so systemd passes DOMAIN to Caddy
@@ -183,7 +237,7 @@ sudo systemctl enable docker
 
 ---
 
-## 10. Firewall: Open Ports 80 and 443 Only
+## 11. Firewall: Open Ports 80 and 443 Only
 
 **AWS Security Group** (set at instance launch — see `AWS_EC2_PROVISIONING.md`):
 
@@ -202,7 +256,7 @@ sudo ufw status
 
 ---
 
-## 11. Nightly Database Backups to S3
+## 12. Nightly Database Backups to S3
 
 ```bash
 # AWS CLI v2 (the `awscli` apt package does not exist on Ubuntu 24.04)
@@ -229,5 +283,26 @@ Backups land in `s3://<bucket>/backups/`, credentials come from `/app/backend/.e
 | Restart backend | `cd /app/backend && docker compose restart app` |
 | Reload Caddy config | `sudo caddy reload --config /app/Caddyfile` |
 | Run a migration | `cd /app/backend && docker compose run --rm app npx prisma migrate deploy` |
-| Bootstrap super + client admin | `cd /app/backend && docker compose exec app npx tsx scripts/bootstrap-users.ts` (reads `SUPER_ADMIN_*` / `CLIENT_ADMIN_*` from `.env`; rebuild image after Dockerfile changes) |
-| Rebuild frontend | `cd /app/frontend && npm ci && npm run build` |
+| Bootstrap super + client admin | `cd /app/backend && docker compose exec app npx tsx scripts/bootstrap-users.ts` |
+
+---
+
+## Ongoing deploy checklist (code + schema changes)
+
+Use this order every time you ship backend or auth changes:
+
+```bash
+cd /app
+git pull origin <branch>          # 1. get latest code + migrations
+
+cd /app/backend
+docker compose up -d --build      # 2. rebuild image (required for new scripts/source)
+docker compose run --rm app npx prisma migrate deploy   # 3. apply migrations
+docker compose exec app npx tsx scripts/bootstrap-users.ts   # 4. only if admin accounts new/reset
+
+cd /app/frontend
+npm ci && npm run build           # 5. rebuild frontend
+sudo caddy reload --config /app/Caddyfile   # 6. if UI looks stale
+```
+
+Verify: `curl https://yourdomain.com/api/health` and log in as SUPER_ADMIN and client ADMIN.

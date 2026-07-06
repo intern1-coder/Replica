@@ -1,6 +1,6 @@
 # PRD — Affinity Workspace
 
-**Status:** Living document — last updated 2026-07-01.  
+**Status:** Living document — last updated 2026-07-06.  
 Update this file when scope changes. Source of truth for what the product is and why.
 
 ---
@@ -24,7 +24,7 @@ Affinity runs job/property/contractor tracking off a spreadsheet ("MLDB") plus a
 | `OWNER` | Legacy role — full access with anti-lockout floor. Assignable only by SUPER_ADMIN. |
 | `CONTRACTOR` | Schema placeholder only — **no contractor-facing login or UI in this version.** All contractor data is entered by the PM. |
 
-No public signup. Users are provisioned by an admin directly in the system.
+No public signup. Users are provisioned by SUPER_ADMIN or client ADMIN in Team Access, or via the one-time bootstrap script on deploy (see §4).
 
 ---
 
@@ -39,9 +39,17 @@ Nothing changes in the system, and no communication leaves it, without an explic
 
 ## 4. Authentication
 
-- **Magic-link only.** PM enters email → one-time token emailed via Brevo/Resend (port 587) → click exchanges token for a JWT session (7-day expiry).
-- **No self-service signup.** Admin provisions users.
-- **Change-password flow** available as a supplementary path for internal credential management (`PasswordResetToken`).
+- **Email + password login.** JWT session (7-day expiry). Passwords stored as bcrypt hashes in the database — **not** in `.env` after initial setup.
+- **No self-service signup.** SUPER_ADMIN or ADMIN provisions team members in the UI; invite email sends a set-password link when no password is set at creation.
+- **Change-password flow** in the app (`POST /api/auth/change-password`) and forgot-password email reset (`PasswordResetToken`).
+- **Initial admin accounts (deploy only):** `scripts/bootstrap-users.ts` reads `SUPER_ADMIN_*` and `CLIENT_ADMIN_*` from server `.env` and upserts two accounts. See `docs/DEPLOY.md` §6. Re-run only to reset those two accounts intentionally.
+
+| Account | Role | Purpose |
+|---|---|---|
+| Developer (`it@vlookup.co.in`) | `SUPER_ADMIN` | Full access; hidden from client team lists |
+| Client lead (`fahd@affinityproperty.co.uk`) | `ADMIN` | Team dashboard; manages PM/ACCOUNTS/CONTRACTOR |
+
+**Env vs database:** `.env` bootstrap vars are for the bootstrap script only. All logins and password changes use the **database** as source of truth.
 
 ---
 
