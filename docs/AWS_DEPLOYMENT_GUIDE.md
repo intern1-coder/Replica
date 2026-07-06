@@ -24,9 +24,9 @@ Sizing: 5–10 users — a t4g.micro with swap handles this comfortably; total c
 
 ## Phase 0 — Code prerequisites (before touching AWS)
 
-1. All work merged to `master`. CI (`.github/workflows/ci.yml`) and the image build (`build-image.yml`) **only run on master**.
+1. All work merged to `master`. CI (`.github/workflows/ci.yml`) runs on every push and PR to `master`.
 2. CI green: build, `check:log-pii` (PII log guard), `prisma migrate deploy`, tests.
-3. Images stay **linux/arm64** — Graviton (t4g) is ARM, same as the old Oracle Ampere VM. No CI changes needed. (If you ever switch to a t3/x86 instance, `build-image.yml` must add `linux/amd64`.)
+3. GHCR image build (`build-image.yml`) is **manual only** — run via Actions when preparing for blue-green on ≥2GB. Production on 1GB builds on-server via `docker compose up -d --build`.
 4. No debug/telemetry artifacts: `grep -r "127.0.0.1:7743" --include="*.ts" --include="*.tsx"` must return nothing in source (docs mentions are fine). See `docs/LESSONS_LEARNED.md` for why.
 
 ## Phase 1 — AWS provisioning (console)
@@ -78,7 +78,7 @@ ssh ubuntu@<AWS_VM_IP> "cd /app/backend && docker compose exec app npx prisma mi
 ssh ubuntu@<AWS_VM_IP> "cd /app/backend && docker compose up -d --build"
 ```
 
-**B. GitHub Actions:** repo secrets `VM_HOST` (Elastic IP), `VM_USER` (`ubuntu`), `VM_SSH_KEY` (the .pem contents), then run the **Deploy** workflow. Note: `deploy.yml` currently calls the blue-green `scripts/deploy.sh`, which is not suitable on 1GB — prefer option A until/unless the instance is resized.
+**B. GitHub Actions:** repo secrets `VM_HOST` (Elastic IP), `VM_USER` (`ubuntu`), `VM_SSH_KEY` (the .pem contents), then run the **Deploy** workflow. It calls `scripts/deploy-single.sh` (single-container, suitable for 1GB). For blue-green on ≥2GB, use `scripts/deploy.sh` manually — see `docs/ZERO_DOWNTIME.md`.
 
 Never deploy with failing CI, and never let the container run with `NODE_ENV` ≠ `production` (Prisma would log raw SQL incl. PII — see `docs/PRODUCTION_HARDENING.md`).
 

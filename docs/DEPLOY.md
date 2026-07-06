@@ -4,6 +4,15 @@ Target: AWS EC2 t4g.micro (Graviton ARM64, 1GB RAM) · Ubuntu 24.04 · 5–10 us
 
 Provision the instance first: see `docs/AWS_EC2_PROVISIONING.md` (EC2 launch, Security Group, Elastic IP, S3 bucket, IAM keys).
 
+## Which deploy path do I use?
+
+| Situation | How to deploy |
+|-----------|---------------|
+| **1GB EC2 (current)** | MobaXterm manual checklist below, **or** GitHub Actions **Deploy** workflow → [`scripts/deploy-single.sh`](../scripts/deploy-single.sh) |
+| **≥2GB + zero downtime** | [`scripts/deploy.sh`](../scripts/deploy.sh) + GHCR image + [`backend/docker-compose.prod.yml`](../backend/docker-compose.prod.yml) — see [`docs/ZERO_DOWNTIME.md`](ZERO_DOWNTIME.md) |
+
+**Do not mix** `docker-compose.yml` (single `affinity_app`) and `docker-compose.prod.yml` (blue/green) on the same server.
+
 ---
 
 ## 1. EC2 Instance Setup
@@ -284,6 +293,32 @@ Backups land in `s3://<bucket>/backups/`, credentials come from `/app/backend/.e
 | Reload Caddy config | `sudo caddy reload --config /app/Caddyfile` |
 | Run a migration | `cd /app/backend && docker compose run --rm app npx prisma migrate deploy` |
 | Bootstrap super + client admin | `cd /app/backend && docker compose exec app npx tsx scripts/bootstrap-users.ts` |
+| Clean up junk Docker artifacts | `chmod +x /app/scripts/docker-cleanup.sh && /app/scripts/docker-cleanup.sh` |
+
+---
+
+## Docker cleanup (one-time + after each deploy)
+
+Production on the 1GB instance should only run **`affinity_app`** and **`affinity_db`**. Leftover blue/green or test containers waste disk and RAM.
+
+**One-time audit in MobaXterm** (run before first cleanup):
+
+```bash
+docker ps -a --filter "name=affinity"
+docker images | grep -E 'affinity|ghcr'
+cat /app/active-upstream.caddy   # expect: reverse_proxy 127.0.0.1:3000
+```
+
+**Remove junk** (only after confirming `affinity_app` and `affinity_db` are healthy):
+
+```bash
+chmod +x /app/scripts/docker-cleanup.sh
+/app/scripts/docker-cleanup.sh
+```
+
+The script removes stopped `affinity_app_blue`, `affinity_app_green`, and `affinity_test_db` containers, prunes dangling/unused images, and keeps the 3 newest pre-deploy SQL dumps in `/tmp`.
+
+**Never remove:** `affinity_db`, the `pgdata` volume, `/app/backend/.env`, or the Caddy systemd service.
 
 ---
 
@@ -300,9 +335,11 @@ docker compose up -d --build      # 2. rebuild image (required for new scripts/s
 docker compose run --rm app npx prisma migrate deploy   # 3. apply migrations
 docker compose exec app npx tsx scripts/bootstrap-users.ts   # 4. only if admin accounts new/reset
 
+/app/scripts/docker-cleanup.sh    # 5. remove junk containers/images and old pre-deploy dumps
+
 cd /app/frontend
-npm ci && npm run build           # 5. rebuild frontend
-sudo caddy reload --config /app/Caddyfile   # 6. if UI looks stale
+npm ci && npm run build           # 6. rebuild frontend
+sudo caddy reload --config /app/Caddyfile   # 7. if UI looks stale
 ```
 
 Verify: `curl https://yourdomain.com/api/health` and log in as SUPER_ADMIN and client ADMIN.
