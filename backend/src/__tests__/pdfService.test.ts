@@ -5,26 +5,30 @@ import { generatePdf } from '../services/pdfService';
 // Mock puppeteer-core to avoid ESM import errors in jest and to avoid
 // needing a real Chrome installation for unit tests.
 jest.mock('puppeteer-core', () => {
+  const mockPage = {
+    setContent: jest.fn().mockResolvedValue(undefined),
+    pdf: jest.fn().mockResolvedValue(Buffer.from('mock-pdf-content')),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
+  const mockBrowser = {
+    connected: true,
+    newPage: jest.fn().mockResolvedValue(mockPage),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
   return {
-    launch: jest.fn().mockResolvedValue({
-      newPage: jest.fn().mockResolvedValue({
-        setContent: jest.fn().mockResolvedValue(undefined),
-        pdf: jest.fn().mockResolvedValue(Buffer.from('mock-pdf-content')),
-      }),
-      close: jest.fn().mockResolvedValue(undefined),
-    }),
+    launch: jest.fn().mockResolvedValue(mockBrowser),
   };
 });
 
 describe('PDF Generation Service', () => {
-  it('quote template includes shared header and footer partials', () => {
+  it('quote template includes shared header partial (footer rendered by Puppeteer)', () => {
     const templatesDir = path.join(__dirname, '../../templates');
     const quote = fs.readFileSync(path.join(templatesDir, 'quote.hbs'), 'utf-8');
     const header = fs.readFileSync(path.join(templatesDir, 'partials/_company_header.hbs'), 'utf-8');
     const footer = fs.readFileSync(path.join(templatesDir, 'partials/_company_footer.hbs'), 'utf-8');
 
     expect(quote).toContain('_company_header');
-    expect(quote).toContain('_company_footer');
+    expect(quote).not.toContain('_company_footer');
     expect(header).toContain('logoSrc');
     expect(footer).toContain('www.affinityproperty.co.uk');
     expect(footer).toContain('info@affinityproperty.co.uk');

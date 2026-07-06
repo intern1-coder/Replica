@@ -3,6 +3,7 @@ import { apiFetch } from '../utils/api';
 import { mergeById, type FetchOptions } from '../utils/refetch';
 import type { Job } from '../pages/JobList';
 import CreatableSelect from 'react-select/creatable';
+import { getReactSelectStyles, reactSelectMenuProps } from '../utils/reactSelectTheme';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -386,7 +387,8 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
           options={availableContractors.map((c) => ({ label: c.name, value: c.id }))}
           value={selectedContractors}
           placeholder="Select or type to create..."
-          styles={{ container: (base) => ({ ...base, width: '100%' }) }}
+          styles={getReactSelectStyles()}
+          {...reactSelectMenuProps}
         />
       </div>
 

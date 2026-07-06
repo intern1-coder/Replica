@@ -25,6 +25,10 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
       // Not JSON
       errorMessage = await response.text();
     }
+
+    if (response.status === 401 && token) {
+      window.dispatchEvent(new CustomEvent('affinity:unauthorized'));
+    }
     
     // Create a custom error object carrying the status code
     const error = new Error(errorMessage) as any;
