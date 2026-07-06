@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Role } from '@prisma/client';
-import { ROLE_PRESETS, OWNER_FLOOR } from './rolePermissions';
+import { ROLE_PRESETS, OWNER_FLOOR, SUPER_ADMIN_FLOOR } from './rolePermissions';
 
 /**
  * Grouped catalog: resource -> list of actions. Drives both the typed key union
@@ -64,8 +64,9 @@ export function getEffectivePermissions(
   // Legacy per-user flag — grants jobs:authorize as a baseline (overrides still win).
   canAuthorizeJobs = false
 ): Record<PermissionKey, boolean> {
-  // ADMIN and OWNER are full-access by default.
-  const fullAccess = role === Role.ADMIN || role === Role.OWNER;
+  // SUPER_ADMIN, ADMIN, and OWNER are full-access by default.
+  const fullAccess =
+    role === Role.SUPER_ADMIN || role === Role.ADMIN || role === Role.OWNER;
   const preset = fullAccess
     ? new Set<string>(ALL_PERMISSIONS)
     : new Set<string>(ROLE_PRESETS[role as 'PM' | 'ACCOUNTS' | 'CONTRACTOR'] ?? []);
@@ -80,6 +81,11 @@ export function getEffectivePermissions(
       allowed = !!overrides[key];
     }
     result[key] = allowed;
+  }
+
+  // SUPER_ADMIN safe floor — these can never be removed via overrides (anti-lockout).
+  if (role === Role.SUPER_ADMIN) {
+    for (const key of SUPER_ADMIN_FLOOR) result[key] = true;
   }
 
   // OWNER safe floor — these can never be removed via overrides (anti-lockout).

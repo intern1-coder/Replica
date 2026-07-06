@@ -157,7 +157,10 @@ router.delete(
         return;
       }
 
-      const isPrivileged = req.user!.role === Role.ADMIN || req.user!.role === Role.OWNER;
+      const isPrivileged =
+        req.user!.role === Role.SUPER_ADMIN ||
+        req.user!.role === Role.ADMIN ||
+        req.user!.role === Role.OWNER;
       if (receipt.uploadedById !== req.user!.id && !isPrivileged) {
         res.status(403).json({ error: 'Forbidden', message: 'Only the uploader or an admin can delete this receipt.' });
         return;

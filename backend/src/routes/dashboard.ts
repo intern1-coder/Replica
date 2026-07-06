@@ -6,7 +6,7 @@ import { requireAuth, requireRole } from '../middleware/auth';
 const router = Router();
 router.use(requireAuth);
 // Available to PMs, Admins, Owners
-router.use(requireRole(Role.PM, Role.ADMIN, Role.OWNER));
+router.use(requireRole(Role.PM, Role.ADMIN, Role.OWNER, Role.SUPER_ADMIN));
 
 // ── GET /api/dashboard/daily-tasks ─────────────────────────────────────────────
 // Computed view merging recent Jobs, Communications, and Audits to show what

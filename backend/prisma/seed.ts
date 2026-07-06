@@ -9,6 +9,18 @@ async function main() {
   const defaultPassword = await bcrypt.hash('Password123!', 10);
 
   // 1. Create Users
+  const superAdmin = await prisma.user.upsert({
+    where: { email: 'superadmin@affinity.local' },
+    update: { passwordHash: defaultPassword, role: Role.SUPER_ADMIN },
+    create: {
+      email: 'superadmin@affinity.local',
+      name: 'Super Admin',
+      role: Role.SUPER_ADMIN,
+      hourlyRate: 50.00,
+      passwordHash: defaultPassword,
+    },
+  });
+
   const admin = await prisma.user.upsert({
     where: { email: 'admin@affinity.local' },
     update: { passwordHash: defaultPassword },
@@ -58,6 +70,7 @@ async function main() {
   });
 
   console.log('Seed successful! You can log in with:');
+  console.log(`- ${superAdmin.email} (SUPER_ADMIN)`);
   console.log(`- ${admin.email}`);
   console.log(`- ${pm.email}`);
 }

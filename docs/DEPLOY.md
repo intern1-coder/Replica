@@ -229,4 +229,5 @@ Backups land in `s3://<bucket>/backups/`, credentials come from `/app/backend/.e
 | Restart backend | `cd /app/backend && docker compose restart app` |
 | Reload Caddy config | `sudo caddy reload --config /app/Caddyfile` |
 | Run a migration | `cd /app/backend && docker compose run --rm app npx prisma migrate deploy` |
+| Bootstrap super + client admin | `cd /app/backend && npm run bootstrap:users` (reads `SUPER_ADMIN_*` and `CLIENT_ADMIN_*` from `.env`) |
 | Rebuild frontend | `cd /app/frontend && npm ci && npm run build` |

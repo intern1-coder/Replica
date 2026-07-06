@@ -16,7 +16,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "bootstrap:users": "tsx scripts/bootstrap-users.ts"
   },
   "jest": {
     "preset": "ts-jest",

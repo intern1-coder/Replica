@@ -30,7 +30,7 @@ interface WorkLog {
   job?: { id?: string; sequence?: number };
 }
 
-const DAILY_TASKS_ROLES = new Set(['PM', 'ADMIN', 'OWNER']);
+const DAILY_TASKS_ROLES = new Set(['PM', 'ADMIN', 'OWNER', 'SUPER_ADMIN']);
 
 function formatStatus(status: string): string {
   return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
