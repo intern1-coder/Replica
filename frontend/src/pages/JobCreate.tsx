@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import type { Client } from './ClientList';
@@ -46,6 +46,31 @@ export function JobCreate() {
   const [suggestedTenants, setSuggestedTenants] = useState<Tenant[]>([]);
   const [suggestedClients, setSuggestedClients] = useState<Client[]>([]);
   const [suggestedProperties, setSuggestedProperties] = useState<Property[]>([]);
+
+  const tenantLabelKey = useCallback((t: Tenant) => t.name, []);
+  const tenantSubLabelKey = useCallback(
+    (t: Tenant) => [t.phone, t.email].filter(Boolean).join(' | '),
+    []
+  );
+  const clientLabelKey = useCallback((c: Client) => c.name, []);
+  const clientSubLabelKey = useCallback(
+    (c: Client) => [c.phone, c.email].filter(Boolean).join(' | '),
+    []
+  );
+  const propertyLabelKey = useCallback((p: Property) => p.address, []);
+  const propertySubLabelKey = useCallback((p: Property) => {
+    const parts = [];
+    if (p.currentClient) parts.push(`Client: ${p.currentClient.name}`);
+    if (p.lastTenants && p.lastTenants.length > 0) {
+      const maxTenants = 2;
+      const tenantNames = p.lastTenants.slice(0, maxTenants).map(t => t.name);
+      const remaining = p.lastTenants.length - maxTenants;
+      let tenantStr = tenantNames.join(', ');
+      if (remaining > 0) tenantStr += `, and ${remaining} more`;
+      parts.push(`Tenants: ${tenantStr}`);
+    }
+    return parts.join(' | ') || undefined;
+  }, []);
 
   // ==========================================
   // OMNI-DIRECTIONAL SMART CASCADING LOGIC
@@ -266,8 +291,8 @@ export function JobCreate() {
               <SearchableAutocomplete
                 endpoint="/tenants"
                 placeholder={selectedProperty || selectedClient ? "Smart suggestions loaded. Type to override..." : "Type to search existing tenants..."}
-                labelKey={(t: Tenant) => t.name}
-                subLabelKey={(t: Tenant) => [t.phone, t.email].filter(Boolean).join(' | ')}
+                labelKey={tenantLabelKey}
+                subLabelKey={tenantSubLabelKey}
                 selectedItem={selectedTenant}
                 onSelect={handleSelectTenant}
                 allowCreate={true}
@@ -325,8 +350,8 @@ export function JobCreate() {
               <SearchableAutocomplete
                 endpoint="/clients"
                 placeholder={selectedTenant || selectedProperty ? "Smart suggestions loaded. Type to override..." : "Type to search clients by name, email, or phone..."}
-                labelKey={(c: Client) => c.name}
-                subLabelKey={(c: Client) => [c.phone, c.email].filter(Boolean).join(' | ')}
+                labelKey={clientLabelKey}
+                subLabelKey={clientSubLabelKey}
                 selectedItem={selectedClient}
                 onSelect={handleSelectClient}
                 defaultOptions={suggestedClients}
@@ -353,23 +378,8 @@ export function JobCreate() {
           <SearchableAutocomplete
             endpoint="/properties"
             placeholder={selectedTenant || selectedClient ? "Smart suggestions loaded. Type to override..." : "Type to search all properties..."}
-            labelKey={(p: Property) => p.address}
-            subLabelKey={(p: Property) => {
-              const parts = [];
-              if (p.currentClient) parts.push(`Client: ${p.currentClient.name}`);
-              if (p.lastTenants && p.lastTenants.length > 0) {
-                const maxTenants = 2;
-                const tenantNames = p.lastTenants.slice(0, maxTenants).map(t => t.name);
-                const remaining = p.lastTenants.length - maxTenants;
-                
-                let tenantStr = tenantNames.join(', ');
-                if (remaining > 0) {
-                  tenantStr += `, and ${remaining} more`;
-                }
-                parts.push(`Tenants: ${tenantStr}`);
-              }
-              return parts.join(' | ') || undefined;
-            }}
+            labelKey={propertyLabelKey}
+            subLabelKey={propertySubLabelKey}
             selectedItem={selectedProperty}
             onSelect={handleSelectProperty}
             defaultOptions={suggestedProperties}

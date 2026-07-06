@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { apiFetch } from '../utils/api';
 import { mergeById, prependById } from '../utils/refetch';
 import CreatableSelect from 'react-select/creatable';
+import { getReactSelectStyles, reactSelectMenuProps } from '../utils/reactSelectTheme';
 import { useAuth } from '../contexts/AuthContext';
 import { Paperclip, Trash2, Download } from 'lucide-react';
 
@@ -268,7 +269,8 @@ export function JobWorkLogs({ jobId }: { jobId: string }) {
             options={contractors.map(c => ({ label: c.name, value: c.id }))}
             value={contractorId ? { label: contractors.find(c => c.id === contractorId)?.name || 'Unknown', value: contractorId } : null}
             placeholder="Select or type to create..."
-            styles={{ container: (base) => ({ ...base, width: '100%' }) }}
+            styles={getReactSelectStyles()}
+            {...reactSelectMenuProps}
           />
         </div>
         <div className="form-row" style={{ flex: '1 1 80px' }}>

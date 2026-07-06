@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiFetch } from '../utils/api';
 import { Search, Plus, Home, MapPin, User, Building2, CornerDownRight, Edit } from 'lucide-react';
 import { SearchableAutocomplete } from '../components/SearchableAutocomplete';
@@ -38,6 +38,26 @@ export function PropertyList() {
   const [selectedParent, setSelectedParent] = useState<Property | null>(null);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const clientLabelKey = useCallback((c: Client) => c.name, []);
+  const clientSubLabelKey = useCallback(
+    (c: Client) => [c.phone, c.email].filter(Boolean).join(' | '),
+    []
+  );
+  const propertyLabelKey = useCallback((p: Property) => p.address, []);
+  const propertySubLabelKey = useCallback((p: Property) => {
+    const parts = [];
+    if (p.currentClient) parts.push(`Client: ${p.currentClient.name}`);
+    if (p.lastTenants && p.lastTenants.length > 0) {
+      const maxTenants = 2;
+      const tenantNames = p.lastTenants.slice(0, maxTenants).map(t => t.name);
+      const remaining = p.lastTenants.length - maxTenants;
+      let tenantStr = tenantNames.join(', ');
+      if (remaining > 0) tenantStr += `, and ${remaining} more`;
+      parts.push(`Tenants: ${tenantStr}`);
+    }
+    return parts.join(' | ') || undefined;
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -226,8 +246,8 @@ export function PropertyList() {
                   <SearchableAutocomplete
                     endpoint="/clients"
                     placeholder="Search clients..."
-                    labelKey={(c: Client) => c.name}
-                    subLabelKey={(c: Client) => [c.phone, c.email].filter(Boolean).join(' | ')}
+                    labelKey={clientLabelKey}
+                    subLabelKey={clientSubLabelKey}
                     selectedItem={selectedClient}
                     onSelect={setSelectedClient}
                   />
@@ -238,23 +258,8 @@ export function PropertyList() {
                   <SearchableAutocomplete
                     endpoint="/properties"
                     placeholder="Search parent building..."
-                    labelKey={(p: Property) => p.address}
-                    subLabelKey={(p: Property) => {
-                      const parts = [];
-                      if (p.currentClient) parts.push(`Client: ${p.currentClient.name}`);
-                      if (p.lastTenants && p.lastTenants.length > 0) {
-                        const maxTenants = 2;
-                        const tenantNames = p.lastTenants.slice(0, maxTenants).map(t => t.name);
-                        const remaining = p.lastTenants.length - maxTenants;
-                        
-                        let tenantStr = tenantNames.join(', ');
-                        if (remaining > 0) {
-                          tenantStr += `, and ${remaining} more`;
-                        }
-                        parts.push(`Tenants: ${tenantStr}`);
-                      }
-                      return parts.join(' | ') || undefined;
-                    }}
+                    labelKey={propertyLabelKey}
+                    subLabelKey={propertySubLabelKey}
                     selectedItem={selectedParent}
                     onSelect={setSelectedParent}
                   />

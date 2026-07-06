@@ -166,6 +166,32 @@ Bootstrap complete.
 **Do not re-run** after users have changed passwords unless you intentionally want to reset
 those two accounts back to the `.env` values.
 
+### Reset test data (keep admin users)
+
+Use `scripts/reset-test-data.ts` to wipe jobs, properties, clients, engineers, and
+related records while **preserving all User and Setting rows**.
+
+```bash
+# Optional backup first
+docker compose exec db pg_dump -U $POSTGRES_USER $POSTGRES_DB | gzip > /tmp/pre_reset_$(date +%F).sql.gz
+
+# Run reset inside app container
+docker compose exec app npx tsx scripts/reset-test-data.ts
+```
+
+Local: `cd backend && npm run reset:test-data`
+
+Re-run bootstrap only if you also wiped users (this script does not).
+
+### Session logout after deploy
+
+If users get logged out unexpectedly:
+
+1. Ensure `JWT_SECRET` in `/app/backend/.env` did not change between deploys — changing it invalidates all tokens.
+2. Confirm `/api/auth/me` returns **200** while logged in (401 = expired/invalid token; 500 = backend bug).
+3. Set `JWT_EXPIRES_IN=7d` in `.env` — passed through `docker-compose.yml` to the app container.
+4. Password changes bump `tokenVersion` and force re-login — this is expected.
+
 ---
 
 ## 7. Build the Frontend
@@ -293,6 +319,7 @@ Backups land in `s3://<bucket>/backups/`, credentials come from `/app/backend/.e
 | Reload Caddy config | `sudo caddy reload --config /app/Caddyfile` |
 | Run a migration | `cd /app/backend && docker compose run --rm app npx prisma migrate deploy` |
 | Bootstrap super + client admin | `cd /app/backend && docker compose exec app npx tsx scripts/bootstrap-users.ts` |
+| Reset test data (keep users) | `cd /app/backend && docker compose exec app npx tsx scripts/reset-test-data.ts` |
 | Clean up junk Docker artifacts | `chmod +x /app/scripts/docker-cleanup.sh && /app/scripts/docker-cleanup.sh` |
 
 ---

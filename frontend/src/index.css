@@ -54,6 +54,7 @@
   --color-brand: #09090b; /* Deep carbon black for premium light mode */
   --color-brand-hover: #27272a;
   --color-brand-text: #ffffff;
+  --color-brand-light: rgba(9, 9, 11, 0.08);
   
   --color-bg: #f4f4f5; /* Zinc 100 - crisp soft grey */
   --color-surface: #ffffff; /* Pure white cards */
@@ -129,6 +130,7 @@
     --color-brand: #c2f042;
     --color-brand-hover: #b0e030;
     --color-brand-text: #09090b;
+    --color-brand-light: rgba(194, 240, 66, 0.15);
 
     /* Dark Mode Status */
     --status-to-be-checked-bg: #27272a;
@@ -441,4 +443,22 @@ table td {
 
 .dense-table th, .dense-table td {
   padding: 0.5rem 0.75rem;
+}
+
+.interactive-list-item {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.interactive-list-item:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.interactive-list-item:last-child {
+  border-bottom: none;
+}
+
+.autocomplete-highlight {
+  background-color: var(--color-brand-light);
+  border-radius: 2px;
 }
