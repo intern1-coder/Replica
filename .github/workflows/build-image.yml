@@ -1,8 +1,9 @@
 name: Build and Push Docker Image
 
+# Manual only — production on 1GB builds on-server (deploy-single.sh).
+# Run this when preparing for blue-green deploy on a ≥2GB instance (see docs/ZERO_DOWNTIME.md).
+
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
       image_tag:

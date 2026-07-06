@@ -1,6 +1,8 @@
 # Zero-Downtime Deployments
 
-> **Note (AWS, 2026-07):** blue-green is NOT used on the current t4g.micro (1GB RAM) instance — running two backend containers side by side doesn't fit. Production deploys use the single-container flow in `docs/AWS_DEPLOYMENT_GUIDE.md` Phase 4. This doc applies only if the instance is resized to ≥2GB.
+> **Note (AWS, 2026-07):** blue-green is NOT used on the current t4g.micro (1GB RAM) instance — running two backend containers side by side doesn't fit. Production deploys use the single-container flow in `docs/DEPLOY.md` / `scripts/deploy-single.sh`. **This doc and `scripts/deploy.sh` apply only if the instance is resized to ≥2GB.**
+
+> **Deprecated on 1GB:** Do not run `scripts/deploy.sh` or the old blue-green Deploy workflow on the current instance. It creates `affinity_app_blue` / `affinity_app_green` junk containers. Use `scripts/deploy-single.sh` instead.
 
 ## How blue-green works
 
