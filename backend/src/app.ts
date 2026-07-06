@@ -4,7 +4,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import config from './config';
 import { morganStream } from './lib/logger';
-import { globalLimiter, searchLimiter } from './middleware/rateLimiter';
+import { globalLimiter, searchLimiter, mediaLimiter } from './middleware/rateLimiter';
 import { errorHandler } from './middleware/errorHandler';
 import { requestId } from './middleware/requestId';
 
@@ -30,6 +30,10 @@ import engineersRouter from './routes/engineers';
 import remindersRouter from './routes/reminders';
 
 const app = express();
+
+// Behind one reverse-proxy hop (Caddy). Without this, req.ip is the proxy's
+// address and every client shares a single rate-limit bucket.
+app.set('trust proxy', 1);
 
 // ── Security middleware ────────────────────────────────────────────────────────
 app.use(helmet());
@@ -80,6 +84,9 @@ app.use('/api/clients', searchLimiter);
 app.use('/api/properties', searchLimiter);
 app.use('/api/tenants', searchLimiter);
 app.use('/api/jobs', searchLimiter);
+// Media/document URL routes fan out one request per item on job open.
+app.use('/api/documents', mediaLimiter);
+app.use('/api/job-media', mediaLimiter);
 app.use(globalLimiter); // skips GET ?q= / ?search= requests (handled above)
 
 // ── Routes ─────────────────────────────────────────────────────────────────────

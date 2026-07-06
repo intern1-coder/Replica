@@ -100,9 +100,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       newSocket.on('user:permissionsChanged', onPermissionsChanged);
 
+      // The server rejects the handshake when the JWT is missing/expired.
+      // Reconnecting with the same token can never succeed — stop retrying
+      // and drop the session instead of spamming failed polling requests.
+      const onConnectError = (err: Error) => {
+        if (/auth|token/i.test(err.message)) {
+          newSocket.disconnect();
+          setToken(null);
+        }
+      };
+      newSocket.on('connect_error', onConnectError);
+
       setSocket(newSocket);
 
       return () => {
+        newSocket.off('connect_error', onConnectError);
         newSocket.off('user:permissionsChanged', onPermissionsChanged);
         newSocket.disconnect();
       };

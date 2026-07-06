@@ -37,6 +37,11 @@ async function main() {
     await tx.client.deleteMany({});
     await tx.engineer.deleteMany({});
     await tx.passwordResetToken.deleteMany({});
+    // deleteMany does not reset SERIAL counters — without this the next job
+    // created after a cleanup gets a stale number (e.g. JOB-0002 on an empty table).
+    await tx.$executeRawUnsafe(
+      `SELECT setval(pg_get_serial_sequence('jobs', 'sequence'), 1, false)`
+    );
   });
 
   const userCountAfter = await prisma.user.count({ where: { deletedAt: null } });

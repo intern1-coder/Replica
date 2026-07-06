@@ -14,6 +14,10 @@ async function main() {
   await prisma.generatedDocument.deleteMany({});
   await prisma.auditLog.deleteMany({});
   await prisma.job.deleteMany({});
+  // Restart job numbering — deleteMany does not reset the SERIAL counter.
+  await prisma.$executeRawUnsafe(
+    `SELECT setval(pg_get_serial_sequence('jobs', 'sequence'), 1, false)`
+  );
 
   // 2. Ensure we have contractors, PM, properties, and clients
   console.log("Loading base entities...");
