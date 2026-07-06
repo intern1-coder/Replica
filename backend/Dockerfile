@@ -45,6 +45,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/templates ./templates
+COPY --from=builder /app/assets ./assets
 
 # Expose port
 EXPOSE 3000

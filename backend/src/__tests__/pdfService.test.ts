@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { generatePdf } from '../services/pdfService';
 
 // Mock puppeteer-core to avoid ESM import errors in jest and to avoid
@@ -15,6 +17,20 @@ jest.mock('puppeteer-core', () => {
 });
 
 describe('PDF Generation Service', () => {
+  it('quote template includes shared header and footer partials', () => {
+    const templatesDir = path.join(__dirname, '../../templates');
+    const quote = fs.readFileSync(path.join(templatesDir, 'quote.hbs'), 'utf-8');
+    const header = fs.readFileSync(path.join(templatesDir, 'partials/_company_header.hbs'), 'utf-8');
+    const footer = fs.readFileSync(path.join(templatesDir, 'partials/_company_footer.hbs'), 'utf-8');
+
+    expect(quote).toContain('_company_header');
+    expect(quote).toContain('_company_footer');
+    expect(header).toContain('logoSrc');
+    expect(footer).toContain('www.affinityproperty.co.uk');
+    expect(footer).toContain('info@affinityproperty.co.uk');
+    expect(footer).toContain('0203 002 6344');
+  });
+
   it('generates a Quote PDF', async () => {
     const data = {
       jobNumber: 'JOB-0001',
