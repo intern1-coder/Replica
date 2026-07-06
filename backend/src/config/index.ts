@@ -77,8 +77,8 @@ const config = {
   },
 
   puppeteer: {
-    // ARM64 VM will use apt install chromium and provide this env var.
-    // Locally, you might need to install chrome and set this var for Windows.
+    // Optional override. Unset = Playwright's bundled Chromium
+    // (`npx playwright install chromium`). Set to a system Chrome path if preferred.
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
   },
 } as const;

@@ -2,21 +2,23 @@ import fs from 'fs';
 import path from 'path';
 import { generatePdf } from '../services/pdfService';
 
-// Mock puppeteer-core to avoid ESM import errors in jest and to avoid
-// needing a real Chrome installation for unit tests.
-jest.mock('puppeteer-core', () => {
+// Mock playwright to avoid ESM import errors in jest and to avoid
+// needing a real Chromium installation for unit tests.
+jest.mock('playwright', () => {
   const mockPage = {
     setContent: jest.fn().mockResolvedValue(undefined),
     pdf: jest.fn().mockResolvedValue(Buffer.from('mock-pdf-content')),
     close: jest.fn().mockResolvedValue(undefined),
   };
   const mockBrowser = {
-    connected: true,
+    isConnected: () => true,
     newPage: jest.fn().mockResolvedValue(mockPage),
     close: jest.fn().mockResolvedValue(undefined),
   };
   return {
-    launch: jest.fn().mockResolvedValue(mockBrowser),
+    chromium: {
+      launch: jest.fn().mockResolvedValue(mockBrowser),
+    },
   };
 });
 
