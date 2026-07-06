@@ -7,6 +7,14 @@ import logger from '../lib/logger';
 
 const templatesDir = path.join(__dirname, '../../templates');
 const partialsDir = path.join(templatesDir, 'partials');
+const logoPath = path.join(__dirname, '../../assets/logo.png');
+
+const PDF_FOOTER_TEMPLATE = `
+<div style="width: 100%; font-size: 8px; color: #6b7280; font-family: 'Segoe UI', Arial, sans-serif; text-align: center; padding: 0 15mm; line-height: 1.5;">
+  <div>Website: www.affinityproperty.co.uk</div>
+  <div>Email: info@affinityproperty.co.uk &nbsp;&nbsp; Telephone: 0203 002 6344</div>
+</div>
+`.trim();
 
 // Register Handlebars helpers
 Handlebars.registerHelper('inc', (value: number) => value + 1);
@@ -14,6 +22,20 @@ Handlebars.registerHelper('formatCurrency', (value: string | number) => {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   return isNaN(num) ? '0.00' : num.toFixed(2);
 });
+
+let logoSrcCache: string | null | undefined;
+
+async function getLogoSrc(): Promise<string | null> {
+  if (logoSrcCache !== undefined) return logoSrcCache;
+  try {
+    const logoBuffer = await fs.readFile(logoPath);
+    logoSrcCache = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+  } catch {
+    logger.warn('PDF logo not found at backend/assets/logo.png — header will render without logo');
+    logoSrcCache = null;
+  }
+  return logoSrcCache;
+}
 
 // Register partials
 async function registerPartials() {
@@ -48,8 +70,9 @@ const getTemplate = async (templateName: string) => {
 };
 
 export async function generatePdf(templateName: string, data: any): Promise<Buffer> {
+  const logoSrc = await getLogoSrc();
   const template = await getTemplate(templateName);
-  const html = template(data);
+  const html = template({ ...data, logoSrc });
 
   // Fallback to standard Chrome path if executablePath is missing (useful for local testing)
   // For production ARM64 VM, PUPPETEER_EXECUTABLE_PATH MUST be set (e.g. /usr/bin/chromium)
@@ -76,8 +99,11 @@ export async function generatePdf(templateName: string, data: any): Promise<Buff
 
       const pdfBuffer = await page.pdf({
         format: 'A4',
-        margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
+        margin: { top: '20mm', right: '20mm', bottom: '28mm', left: '20mm' },
         printBackground: true,
+        displayHeaderFooter: true,
+        headerTemplate: '<div></div>',
+        footerTemplate: PDF_FOOTER_TEMPLATE,
       });
 
       return Buffer.from(pdfBuffer);

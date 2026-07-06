@@ -1,0 +1,14 @@
+<div class="company-header" style="border-bottom-color: {{accentColor}};">
+  <div class="company-brand">
+    {{#if logoSrc}}
+    <img src="{{logoSrc}}" alt="Affinity Property Services" class="company-logo" />
+    {{/if}}
+    <div class="company-name" style="color: {{accentColor}};">Affinity Property Services</div>
+    <div class="company-tagline">Professional Property Maintenance & Management</div>
+  </div>
+  <div class="company-meta">
+    <div>Job #{{jobNumber}}</div>
+    {{#if date}}<div>{{date}}</div>{{/if}}
+    {{#if completedAt}}<div>{{completedAt}}</div>{{/if}}
+  </div>
+</div>
