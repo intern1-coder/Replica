@@ -208,10 +208,13 @@ app calls relative `/api` and `/socket.io`, which Caddy proxies to the backend
 on the same origin. Only set `VITE_API_URL` (in `/app/frontend/.env`) before
 building if the API is hosted on a separate domain — see `frontend/.env.example`.
 
-After rebuilding, reload Caddy if the site still shows old assets:
+After rebuilding, reload Caddy if the site still shows old assets (requires
+the systemd service from §10 to already be set up — a bare `caddy reload`
+never sees `$DOMAIN`, since that substitution happens in the invoking
+process's own environment, not the running server's):
 
 ```bash
-sudo caddy reload --config /app/Caddyfile
+sudo systemctl reload caddy
 ```
 
 ---
@@ -316,7 +319,7 @@ Backups land in `s3://<bucket>/backups/`, credentials come from `/app/backend/.e
 |------|---------|
 | View backend logs | `cd /app/backend && docker compose logs -f app` |
 | Restart backend | `cd /app/backend && docker compose restart app` |
-| Reload Caddy config | `sudo caddy reload --config /app/Caddyfile` |
+| Reload Caddy config | `sudo systemctl reload caddy` |
 | Run a migration | `cd /app/backend && docker compose run --rm app npx prisma migrate deploy` |
 | Bootstrap super + client admin | `cd /app/backend && docker compose exec app npx tsx scripts/bootstrap-users.ts` |
 | Reset test data (keep users) | `cd /app/backend && docker compose exec app npx tsx scripts/reset-test-data.ts` |
@@ -370,7 +373,7 @@ docker compose exec app npx tsx scripts/bootstrap-users.ts   # 4. only if admin 
 
 cd /app/frontend
 npm ci && npm run build           # 6. rebuild frontend
-sudo caddy reload --config /app/Caddyfile   # 7. if UI looks stale
+sudo systemctl reload caddy       # 7. if UI looks stale
 ```
 
 Verify: `curl https://yourdomain.com/api/health` and log in as SUPER_ADMIN and client ADMIN.
