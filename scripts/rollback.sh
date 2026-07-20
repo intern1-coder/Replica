@@ -32,7 +32,12 @@ until curl -sf "http://127.0.0.1:${PREV_PORT}/api/health" > /dev/null 2>&1; do
 done
 
 echo "reverse_proxy 127.0.0.1:${PREV_PORT}" > "$UPSTREAM_FILE"
-caddy reload --config /app/Caddyfile --force
+# Must go through systemd, not a bare `caddy reload` — {$DOMAIN} substitution
+# happens in the invoking process's own environment, which a direct call
+# doesn't have. `systemctl reload` inherits the unit's
+# EnvironmentFile=/etc/caddy/env (see docs/DEPLOY.md §10) and already runs
+# with --force per the unit's ExecReload override.
+sudo systemctl reload caddy
 
 docker compose -f "$COMPOSE_FILE" stop "app_${ACTIVE}"
 echo "$PREV" > "$ACTIVE_FILE"

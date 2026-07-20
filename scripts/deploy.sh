@@ -83,7 +83,12 @@ log "NODE_ENV=production confirmed"
 # ── Step 6: Flip Caddy traffic ─────────────────────────────────────────────────
 log "Flipping traffic to app_${TARGET} (port ${TARGET_PORT})..."
 echo "reverse_proxy 127.0.0.1:${TARGET_PORT}" > "$UPSTREAM_FILE"
-caddy reload --config /app/Caddyfile --force
+# Must go through systemd, not a bare `caddy reload` — {$DOMAIN} substitution
+# happens in the invoking process's own environment, which a direct call
+# doesn't have. `systemctl reload` inherits the unit's
+# EnvironmentFile=/etc/caddy/env (see docs/DEPLOY.md §10) and already runs
+# with --force per the unit's ExecReload override.
+sudo systemctl reload caddy
 log "Traffic now routed to app_${TARGET}"
 
 # ── Step 7: Stop the old container ────────────────────────────────────────────

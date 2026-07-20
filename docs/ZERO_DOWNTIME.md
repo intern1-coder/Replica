@@ -98,8 +98,11 @@ echo blue > /app/scripts/.active
 # Create initial Caddy upstream file (blue on 3001)
 echo "reverse_proxy 127.0.0.1:3001" > /app/active-upstream.caddy
 
-# Reload Caddy so it picks up the file
-systemctl reload caddy   # or: caddy reload --config /etc/caddy/Caddyfile
+# Reload Caddy so it picks up the file — must go through systemd, not a bare
+# `caddy reload`: {$DOMAIN} substitution happens in the invoking process's
+# own environment, which only `systemctl reload` inherits from the unit's
+# EnvironmentFile=/etc/caddy/env (see docs/DEPLOY.md §10).
+sudo systemctl reload caddy
 ```
 
 Place `deploy.sh` and `rollback.sh` in `/app/scripts/` and make them executable (`chmod +x`).

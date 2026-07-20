@@ -32,7 +32,12 @@ npm ci
 npm run build
 
 log "Reloading Caddy..."
-sudo caddy reload --config /app/Caddyfile
+# Must go through systemd, not a bare `caddy reload` — {$DOMAIN} substitution
+# happens in the invoking process's own environment, and a direct call has
+# none (sudo strips it too). `systemctl reload` inherits the unit's
+# EnvironmentFile=/etc/caddy/env (see docs/DEPLOY.md §10), which a bare
+# `sudo caddy reload` bypasses entirely.
+sudo systemctl reload caddy
 
 log "Verifying health..."
 curl -sf http://127.0.0.1:3000/api/health > /dev/null
