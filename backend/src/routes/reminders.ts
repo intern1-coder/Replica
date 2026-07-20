@@ -111,8 +111,12 @@ router.patch(
 
 // ── PATCH /api/reminders/:id/notified ────────────────────────────────────────
 // Called by frontend after browser push fires, to record the notification time.
+// Gated on reminders:view (not reminders:manage) — any authenticated user who
+// can see reminders may ack their own push; this is a passive timestamp, not
+// a business-state change like snooze/done/dismiss above.
 router.patch(
   '/:id/notified',
+  requirePermission('reminders:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
