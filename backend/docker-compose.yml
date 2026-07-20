@@ -55,8 +55,13 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Loopback-only — matches app's 127.0.0.1 binding in docker-compose.prod.yml.
+    # The app reaches Postgres over the internal Docker network (db:5432); this
+    # binding only exists for an admin SSH'd into the host to psql in directly.
+    # Previously "5432:5432" (all interfaces) — internet-reachable, SG-mitigated
+    # only.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
