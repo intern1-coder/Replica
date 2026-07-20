@@ -29,7 +29,7 @@ docker compose run --rm app npx prisma migrate deploy
 cd /app/frontend
 npm ci && npm run build
 
-sudo caddy reload --config /app/Caddyfile
+sudo systemctl reload caddy
 ```
 
 **Verify:**
