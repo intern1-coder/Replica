@@ -20,7 +20,7 @@ interface GeneratedDocument {
 const DOCUMENT_STAGE_RULES: Record<string, { allowed: string[]; message: string }> = {
   QUOTE: {
     allowed: ['QUOTED', 'AUTHORISED', 'PENDING_INVOICE', 'COMPLETED'],
-    message: 'Quote Report can only be generated once the job reaches QUOTED stage.',
+    message: 'Diagnostic Report can only be generated once the job reaches QUOTED stage.',
   },
   JOB_SHEET: {
     allowed: ['AUTHORISED', 'PENDING_INVOICE', 'COMPLETED'],
@@ -48,6 +48,8 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
   const [editingDoc, setEditingDoc] = useState<GeneratedDocument | null>(null);
   // Hidden by default — logged hours are internal; opt in per report.
   const [includeWorkLogs, setIncludeWorkLogs] = useState(false);
+  // Included by default — opt out when diagnostic photos shouldn't go to the client.
+  const [includeDiagnosticImages, setIncludeDiagnosticImages] = useState(true);
   const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, message: string, onConfirm: () => void} | null>(null);
 
   // Job Sheet chooser dialog
@@ -152,7 +154,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
         if (type === 'QUOTE' && !hasDiagnostic) {
           setConfirmDialog({
             isOpen: true,
-            message: "You haven't uploaded any Diagnostic Photos for this job. Are you sure you want to generate the Quote without images?",
+            message: "You haven't uploaded any Diagnostic Photos for this job. Are you sure you want to generate the Diagnostic Report without images?",
             onConfirm: () => { setConfirmDialog(null); executeGenerate(type); }
           });
           return;
@@ -195,7 +197,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       const newDoc = await apiFetch(endpoint, {
         method: 'POST',
         body: JSON.stringify(
-          type === 'COMPLETION_REPORT' ? { jobId, includeWorkLogs } : { jobId }
+          type === 'COMPLETION_REPORT' ? { jobId, includeWorkLogs, includeDiagnosticImages } : { jobId }
         )
       });
       setDocs([newDoc, ...docs]);
@@ -214,7 +216,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       if (action === 'download') {
         const a = document.createElement('a');
         a.href = response.url;
-        a.download = '';
+        a.download = response.filename || '';
         a.click();
       } else {
         window.open(response.url, '_blank');
@@ -256,21 +258,31 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       {error && <div className="page-error">{error}</div>}
 
       <div className="flex" style={{ gap: 'var(--space-sm)', marginBottom: 'var(--space-md)', flexWrap: 'wrap', alignItems: 'center' }}>
-        {renderButton('QUOTE', 'Generate Quote', 'doc-btn-quote')}
+        {renderButton('QUOTE', 'Generate Diagnostic Report', 'doc-btn-quote')}
         {renderButton('JOB_SHEET', 'Generate Job Sheet', 'doc-btn-jobsheet')}
         {renderButton('COMPLETION_REPORT', 'Generate Completion Report', 'doc-btn-completion')}
         {isGenerating && <span className="flex items-center text-secondary" style={{ fontSize: '0.85rem' }}>Generating PDF...</span>}
       </div>
 
       {isDocAllowed('COMPLETION_REPORT') && (
-        <label className="flex items-center gap-2" style={{ marginBottom: 'var(--space-md)', fontSize: '0.85rem', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={includeWorkLogs}
-            onChange={(e) => setIncludeWorkLogs(e.target.checked)}
-          />
-          Include Logged Hours on Client Report
-        </label>
+        <div className="flex" style={{ flexDirection: 'column', gap: 'var(--space-xs)', marginBottom: 'var(--space-md)' }}>
+          <label className="flex items-center gap-2" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={includeWorkLogs}
+              onChange={(e) => setIncludeWorkLogs(e.target.checked)}
+            />
+            Include Logged Hours on Client Report
+          </label>
+          <label className="flex items-center gap-2" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={includeDiagnosticImages}
+              onChange={(e) => setIncludeDiagnosticImages(e.target.checked)}
+            />
+            Include Diagnostic Photos on Completion Report
+          </label>
+        </div>
       )}
 
       {!scheduledDate && isDocAllowed('JOB_SHEET') && (
@@ -283,7 +295,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       {!isDocAllowed('QUOTE') && (
         <div className="flex items-center gap-2" style={{ padding: '0.5rem 0.75rem', marginBottom: 'var(--space-sm)', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
           <Lock size={14} />
-          Quote & Job Sheet will be available once job reaches <strong>QUOTED</strong> stage.
+          Diagnostic Report & Job Sheet will be available once job reaches <strong>QUOTED</strong> stage.
           {!isDocAllowed('COMPLETION_REPORT') && <span>Completion Report requires <strong>PENDING INVOICE</strong> stage.</span>}
         </div>
       )}

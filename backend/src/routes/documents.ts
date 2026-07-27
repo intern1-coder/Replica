@@ -11,7 +11,7 @@ import config from '../config';
 import { validate } from '../middleware/errorHandler';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { generatePdf } from '../services/pdfService';
-import { formatJobNumber } from '../lib/utils';
+import { formatJobNumber, formatPropertyAddress } from '../lib/utils';
 import logger from '../lib/logger';
 import { emitToJob } from '../lib/socket';
 import { getMediaSignedUrl } from '../services/storageService';
@@ -66,6 +66,35 @@ function calculateVat(netValue: string | number, rate: number = 0.2): { vatAmoun
   };
 }
 
+// Filesystem-illegal on Windows; also awkward in a Content-Disposition header.
+const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
+
+// Human-readable download filename built from the document's own snapshot —
+// no extra DB joins needed, everything is already in snapshotData.
+function buildDocumentFilename(doc: { type: DocumentType; snapshotData: unknown }): string {
+  const snapshot = (doc.snapshotData || {}) as Record<string, unknown>;
+  const address = String(snapshot['propertyAddress'] || 'Property').replace(ILLEGAL_FILENAME_CHARS, '');
+
+  let name: string;
+  switch (doc.type) {
+    case DocumentType.QUOTE:
+      name = `Diagnostic Report – ${address}`;
+      break;
+    case DocumentType.COMPLETION_REPORT:
+      name = `Completion Report – ${address}`;
+      break;
+    case DocumentType.JOB_SHEET: {
+      const contractor = String(snapshot['contractorName'] || 'Contractor').replace(ILLEGAL_FILENAME_CHARS, '');
+      name = `Job Sheet – ${contractor} – ${address}`;
+      break;
+    }
+    default:
+      name = `Document – ${address}`;
+  }
+
+  return `${name.slice(0, 200)}.pdf`;
+}
+
 // ── POST /api/documents/quote ──────────────────────────────────────────────────
 
 router.post(
@@ -110,7 +139,7 @@ router.post(
         jobNumber: formatJobNumber(job.sequence),
         date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
         clientName: job.client?.name || 'No Client Assigned',
-        propertyAddress: job.property?.address || 'No Property Assigned',
+        propertyAddress: job.property ? formatPropertyAddress(job.property) : 'No Property Assigned',
         description: job.description || 'No description provided.',
         quotedValue,
         vatAmount,
@@ -203,7 +232,7 @@ router.post(
         scheduledTime,
         status: 'AUTHORISED',
         contractorName,
-        propertyAddress: job.property?.address || 'No Property Assigned',
+        propertyAddress: job.property ? formatPropertyAddress(job.property) : 'No Property Assigned',
         tenantName: job.tenantSnapshotName || 'N/A',
         tenantPhone: job.tenantSnapshotPhone || '',
         accessNotes: job.property?.accessNotes || '',
@@ -248,6 +277,8 @@ router.post(
     // Logged hours are hidden from client reports unless explicitly opted in —
     // protects margins by default.
     body('includeWorkLogs').optional().isBoolean().toBoolean(),
+    // Diagnostic (before) photos are included by default — opt out per report.
+    body('includeDiagnosticImages').optional().isBoolean().toBoolean(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -281,8 +312,10 @@ router.post(
         return;
       }
 
-      // Fetch both diagnostic and completion images as base64
-      const diagnosticImages = await getBase64Images(job.id, 'DIAGNOSTIC');
+      const includeDiagnosticImages = req.body.includeDiagnosticImages !== false;
+
+      // Fetch completion images always; diagnostic images only when opted in.
+      const diagnosticImages = includeDiagnosticImages ? await getBase64Images(job.id, 'DIAGNOSTIC') : [];
       const completionImages = await getBase64Images(job.id, 'COMPLETION');
 
       const quotedValue = job.quotedValue ? Number(job.quotedValue).toFixed(2) : '0.00';
@@ -311,7 +344,7 @@ router.post(
           ? job.completedAt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
           : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
         clientName: job.client?.name || 'No Client Assigned',
-        propertyAddress: job.property?.address || 'No Property Assigned',
+        propertyAddress: job.property ? formatPropertyAddress(job.property) : 'No Property Assigned',
         description: job.description || 'No description provided.',
         completionNotes: job.completionNotes || '',
         completedBy,
@@ -325,6 +358,7 @@ router.post(
         })),
         includeWorkLogs,
         workLogs,
+        includeDiagnosticImages,
         diagnosticImages,
         completionImages,
       };
@@ -434,8 +468,9 @@ router.get(
       }
 
       const isDownload = req.query.download === 'true';
-      const url = await getMediaSignedUrl(doc.storageKey, isDownload);
-      res.json({ id: doc.id, url, type: doc.type });
+      const filename = buildDocumentFilename(doc);
+      const url = await getMediaSignedUrl(doc.storageKey, isDownload, filename);
+      res.json({ id: doc.id, url, type: doc.type, filename });
     } catch (err) {
       next(err);
     }

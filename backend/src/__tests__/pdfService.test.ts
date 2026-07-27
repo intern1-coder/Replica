@@ -10,9 +10,13 @@ jest.mock('playwright', () => {
     pdf: jest.fn().mockResolvedValue(Buffer.from('mock-pdf-content')),
     close: jest.fn().mockResolvedValue(undefined),
   };
+  const mockContext = {
+    newPage: jest.fn().mockResolvedValue(mockPage),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
   const mockBrowser = {
     isConnected: () => true,
-    newPage: jest.fn().mockResolvedValue(mockPage),
+    newContext: jest.fn().mockResolvedValue(mockContext),
     close: jest.fn().mockResolvedValue(undefined),
   };
   return {
@@ -49,7 +53,10 @@ describe('PDF Generation Service', () => {
 
     const pdfBuffer = await generatePdf('quote', data);
     expect(Buffer.isBuffer(pdfBuffer)).toBe(true);
-    expect(pdfBuffer.length).toBeGreaterThan(10); // Should be a substantial buffer
+    // Exact match against the mocked page.pdf() output — guards against the
+    // real path silently falling through to the dummy-PDF error fallback,
+    // which would also satisfy a looser "length > 10" check.
+    expect(pdfBuffer).toEqual(Buffer.from('mock-pdf-content'));
   }, 10000); // 10s timeout for puppeteer launch
 
   it('generates a Job Sheet PDF', async () => {

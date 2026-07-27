@@ -61,9 +61,10 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
     // lightweight; they are re-attached from initialSnapshot on save.
     delete clean.diagnosticImages;
     delete clean.completionImages;
-    // Boolean flag set at generation time — not editable here (regenerate the
-    // report from the job page to change it).
+    // Boolean flags set at generation time — not editable here (regenerate the
+    // report from the job page to change them).
     delete clean.includeWorkLogs;
+    delete clean.includeDiagnosticImages;
     if (isJobSheet) clean.status = 'AUTHORISED';
     return clean;
   });
@@ -89,6 +90,7 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
       if (initialSnapshot.diagnosticImages) payload.diagnosticImages = initialSnapshot.diagnosticImages;
       if (initialSnapshot.completionImages) payload.completionImages = initialSnapshot.completionImages;
       if ('includeWorkLogs' in initialSnapshot) payload.includeWorkLogs = initialSnapshot.includeWorkLogs;
+      if ('includeDiagnosticImages' in initialSnapshot) payload.includeDiagnosticImages = initialSnapshot.includeDiagnosticImages;
 
       await apiFetch(`/documents/${documentId}`, {
         method: 'PATCH',

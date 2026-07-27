@@ -5,7 +5,7 @@
   <title>Completion Report - {{jobNumber}}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; font-synthesis: none; }
     .page { padding: 0; }
     .company-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 15px; border-bottom: 3px solid #6d28d9; margin-bottom: 20px; }
     .company-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -18,17 +18,13 @@
     .details-table th, .details-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
     .details-table th { background: #f3f4f6; color: #374151; font-weight: 600; width: 30%; }
     .section-title { font-size: 13px; font-weight: 700; color: #374151; padding: 8px 0; border-bottom: 2px solid #e5e7eb; margin: 20px 0 10px 0; }
-    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
     .items-table th, .items-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
     .items-table th { background: #f3f4f6; color: #374151; font-weight: 600; }
     .items-table td.number { text-align: center; width: 40px; }
     .items-table td.price { text-align: right; width: 100px; }
-
-    .totals-table { width: 100%; border-collapse: collapse; margin-top: 0; }
-    .totals-table td { border: 1px solid #d1d5db; padding: 8px 12px; }
-    .totals-table .label { text-align: right; font-weight: 600; background: #f9fafb; }
-    .totals-table .value { text-align: right; width: 120px; }
-    .totals-table .grand-total td { font-weight: 700; font-size: 13px; background: #f5f3ff; }
+    .items-table tfoot td.label { text-align: right; font-weight: 600; background: #f9fafb; }
+    .items-table tfoot tr.grand-total td { font-weight: 700; font-size: 13px; background: #f5f3ff; }
     .worklogs-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
     .worklogs-table th, .worklogs-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
     .worklogs-table th { background: #f3f4f6; color: #374151; font-weight: 600; }
@@ -70,21 +66,20 @@
         </tr>
         {{/each}}
       </tbody>
-    </table>
-
-    <table class="totals-table">
-      <tr>
-        <td class="label">TOTAL NET Price Including Labour and Materials:</td>
-        <td class="value">£{{quotedValue}}</td>
-      </tr>
-      <tr>
-        <td class="label">VAT ({{vatPercent}}%):</td>
-        <td class="value">£{{vatAmount}}</td>
-      </tr>
-      <tr class="grand-total">
-        <td class="label">TOTAL inc. VAT:</td>
-        <td class="value">£{{totalWithVat}}</td>
-      </tr>
+      <tfoot>
+        <tr>
+          <td class="label" colspan="2">TOTAL NET Price Including Labour and Materials:</td>
+          <td class="price">£{{quotedValue}}</td>
+        </tr>
+        <tr>
+          <td class="label" colspan="2">VAT ({{vatPercent}}%):</td>
+          <td class="price">£{{vatAmount}}</td>
+        </tr>
+        <tr class="grand-total">
+          <td class="label" colspan="2">TOTAL inc. VAT:</td>
+          <td class="price">£{{totalWithVat}}</td>
+        </tr>
+      </tfoot>
     </table>
     {{/if}}
 
@@ -117,10 +112,13 @@
     <p style="padding: 8px 0;">{{completionNotes}}</p>
     {{/if}}
 
+    {{#if includeDiagnosticImages}}
     {{> _image_grid title="Before (Diagnostic) Photos" images=diagnosticImages}}
+    {{/if}}
     {{> _image_grid title="After (Completion) Photos" images=completionImages}}
 
     <p style="margin-top: 20px; font-size: 11px; color: #6b7280;">Work completed to specification by Affinity Property Services.</p>
+    <p style="margin-top: 4px; font-size: 11px; color: #6b7280;">If you have any questions regarding the above quotation, please feel free to contact me on 0203 148 4476.</p>
   </div>
 </body>
 </html>

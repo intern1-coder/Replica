@@ -9,6 +9,7 @@ import { useToast } from '../contexts/ToastContext';
 export interface Property {
   id: string;
   address: string;
+  postcode?: string | null;
   // parentId enables HMO-style grouping: a parent block contains multiple sub-unit
   // flats. A property with a parentId is a sub-unit; one without is a standalone or block.
   parentId: string | null;
@@ -32,6 +33,7 @@ export function PropertyList() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [address, setAddress] = useState('');
+  const [postcode, setPostcode] = useState('');
   const [accessNotes, setAccessNotes] = useState('');
   const [keyLocation, setKeyLocation] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -76,6 +78,7 @@ export function PropertyList() {
 
   const resetForm = () => {
     setAddress('');
+    setPostcode('');
     setAccessNotes('');
     setKeyLocation('');
     setSelectedClient(null);
@@ -95,6 +98,7 @@ export function PropertyList() {
     try {
       const full = await apiFetch(`/properties/${p.id}`);
       setAddress(full.address);
+      setPostcode(full.postcode || '');
       setAccessNotes(full.accessNotes || '');
       setKeyLocation(full.keyLocation || '');
       setSelectedClient(full.currentClient ? { id: full.currentClient.id, name: full.currentClient.name } as Client : null);
@@ -112,8 +116,9 @@ export function PropertyList() {
     try {
       const newProperty = await apiFetch('/properties', {
         method: 'POST',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           address,
+          postcode: postcode.trim() || null,
           currentClientId: selectedClient ? selectedClient.id : null,
           parentId: selectedParent ? selectedParent.id : null
         }),
@@ -139,6 +144,7 @@ export function PropertyList() {
         method: 'PATCH',
         body: JSON.stringify({
           address,
+          postcode: postcode.trim() || null,
           accessNotes: accessNotes.trim() || null,
           keyLocation: keyLocation.trim() || null,
           currentClientId: selectedClient ? selectedClient.id : null,
@@ -240,7 +246,12 @@ export function PropertyList() {
                   <label className="form-label">Full Address *</label>
                   <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St, London..." required />
                 </div>
-                
+
+                <div className="form-row">
+                  <label className="form-label">Postcode</label>
+                  <input type="text" value={postcode} onChange={e => setPostcode(e.target.value)} placeholder="SW1A 1AA" />
+                </div>
+
                 <div className="form-row">
                   <label className="form-label">Assigned Client (Optional)</label>
                   <SearchableAutocomplete
@@ -323,7 +334,12 @@ export function PropertyList() {
                       <MapPin size={16} className="text-secondary" />
                     </div>
                     <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
-                      <div className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{p.address}</div>
+                      <div className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {p.address}
+                        {p.postcode && !p.address.toLowerCase().trimEnd().endsWith(p.postcode.trim().toLowerCase()) && (
+                          <span className="text-secondary" style={{ fontWeight: 400 }}>, {p.postcode}</span>
+                        )}
+                      </div>
                       {p.parent && (
                         <div className="text-secondary flex items-center gap-1" style={{ fontSize: '0.875rem' }}>
                           <CornerDownRight size={14} className="text-muted" /> Part of: {p.parent.address}

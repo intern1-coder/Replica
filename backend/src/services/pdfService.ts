@@ -143,7 +143,13 @@ export async function generatePdf(templateName: string, data: any): Promise<Buff
 
   try {
     const browser = await getBrowser();
-    const page = await browser.newPage();
+    // At the default deviceScaleFactor (1), Chromium rasterizes text at
+    // native pixel density before PDF export, and thin vertical strokes
+    // (e.g. lowercase "l") get rounded to whole pixels and read as
+    // disproportionately bold next to round/wide letters. Rendering at 2x
+    // gives the rasterizer enough resolution that this artifact disappears.
+    const context = await browser.newContext({ deviceScaleFactor: 2 });
+    const page = await context.newPage();
 
     try {
       await page.setContent(html, { waitUntil: 'domcontentloaded' });
@@ -160,6 +166,7 @@ export async function generatePdf(templateName: string, data: any): Promise<Buff
       return Buffer.from(pdfBuffer);
     } finally {
       await page.close().catch(() => {});
+      await context.close().catch(() => {});
     }
   } catch (err) {
     logger.error('Chromium failed to launch or generate PDF (run `npx playwright install chromium` if missing). Generating dummy fallback PDF.', {
