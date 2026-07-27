@@ -552,11 +552,18 @@ router.delete(
 
 // ── PATCH /api/jobs/:id/restore ─────────────────────────────────────────────────
 // Reactivates a soft-deleted (archived) job. Same permission as deletion.
+//
+// A job archived while CANCELLED ("Not Proceeding") is ambiguous on restore:
+// the caller may want it back in Not Proceeding, or reactivated into the
+// active pipeline. `reactivate: true` requests the latter — we reconstruct
+// the status it held right before cancellation from the audit trail (the
+// only record of it, since the job row itself only keeps the current
+// status), falling back to TO_BE_CHECKED if that entry can't be found.
 
 router.patch(
   '/:id/restore',
   requirePermission('jobs:delete'),
-  [param('id').isUUID()],
+  [param('id').isUUID(), body('reactivate').optional().isBoolean().toBoolean()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -569,9 +576,28 @@ router.patch(
         return;
       }
 
+      const reactivate = req.body.reactivate === true;
+      const data: { deletedAt: null; status?: JobStatus } = { deletedAt: null };
+
+      if (reactivate && existing.status === JobStatus.CANCELLED) {
+        const lastCancellation = await prisma.auditLog.findFirst({
+          where: {
+            entityType: 'Job',
+            entityId: existing.id,
+            action: AuditAction.UPDATE,
+            after: { path: ['status'], equals: JobStatus.CANCELLED },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        const priorStatus = (lastCancellation?.before as { status?: string } | null)?.status;
+        data.status = priorStatus && priorStatus in JobStatus
+          ? (priorStatus as JobStatus)
+          : JobStatus.TO_BE_CHECKED;
+      }
+
       const updated = await prisma.job.update({
         where: { id: req.params['id'] },
-        data: { deletedAt: null },
+        data,
       });
 
       await logAudit({
@@ -584,7 +610,7 @@ router.patch(
         jobId: updated.id,
       });
 
-      logger.info('Job restored', { jobId: updated.id, restoredById: req.user!.id });
+      logger.info('Job restored', { jobId: updated.id, restoredById: req.user!.id, reactivated: reactivate, status: updated.status });
       emitToAll('job:created', { jobId: updated.id, ts: new Date().toISOString() });
       res.json(updated);
     } catch (err) {

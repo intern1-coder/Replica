@@ -150,13 +150,16 @@ export function JobList() {
     };
   }, [socket, debouncedBackgroundLoad, activeTab]);
 
-  const handleRestore = async (jobId: string) => {
+  const handleRestore = async (jobId: string, reactivate: boolean) => {
     setConfirmRestore(null);
     setRestoringId(jobId);
     try {
-      await apiFetch(`/jobs/${jobId}/restore`, { method: 'PATCH' });
+      await apiFetch(`/jobs/${jobId}/restore`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reactivate }),
+      });
       setJobs((prev) => prev.filter((j) => j.id !== jobId));
-      showToast('Job restored', 'success');
+      showToast(reactivate ? 'Job restored to the active pipeline' : 'Job restored', 'success');
     } catch (err: any) {
       showToast(err.message || 'Failed to restore job', 'error');
     } finally {
@@ -388,17 +391,36 @@ export function JobList() {
 
       {confirmRestore && (
         <div className="modal-backdrop entering" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="modal-panel entering section-card" style={{ width: '400px', maxWidth: '90vw' }}>
+          <div className="modal-panel entering section-card" style={{ width: '420px', maxWidth: '90vw' }}>
             <h3 style={{ margin: '0 0 var(--space-sm) 0', fontSize: '1rem' }}>Restore Job?</h3>
-            <p className="text-secondary" style={{ margin: '0 0 var(--space-md) 0', fontSize: '0.85rem', lineHeight: '1.4' }}>
-              This moves job #{confirmRestore.sequence} out of Archived and back to the {destinationTabLabel(confirmRestore.status)} tab.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmRestore(null)} className="button secondary" disabled={restoringId === confirmRestore.id}>Cancel</button>
-              <button onClick={() => handleRestore(confirmRestore.id)} className="button primary" disabled={restoringId === confirmRestore.id}>
-                {restoringId === confirmRestore.id ? 'Restoring...' : 'Restore'}
-              </button>
-            </div>
+            {confirmRestore.status === 'CANCELLED' ? (
+              <>
+                <p className="text-secondary" style={{ margin: '0 0 var(--space-md) 0', fontSize: '0.85rem', lineHeight: '1.4' }}>
+                  Job #{confirmRestore.sequence} was marked Not Proceeding before it was archived. Where should it go?
+                </p>
+                <div className="flex justify-end gap-2" style={{ flexWrap: 'wrap' }}>
+                  <button onClick={() => setConfirmRestore(null)} className="button secondary" disabled={restoringId === confirmRestore.id}>Cancel</button>
+                  <button onClick={() => handleRestore(confirmRestore.id, false)} className="button secondary" disabled={restoringId === confirmRestore.id}>
+                    {restoringId === confirmRestore.id ? 'Restoring...' : 'Restore to Not Proceeding'}
+                  </button>
+                  <button onClick={() => handleRestore(confirmRestore.id, true)} className="button primary" disabled={restoringId === confirmRestore.id}>
+                    {restoringId === confirmRestore.id ? 'Restoring...' : 'Restore to Active Pipeline'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-secondary" style={{ margin: '0 0 var(--space-md) 0', fontSize: '0.85rem', lineHeight: '1.4' }}>
+                  This moves job #{confirmRestore.sequence} out of Archived and back to the {destinationTabLabel(confirmRestore.status)} tab.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setConfirmRestore(null)} className="button secondary" disabled={restoringId === confirmRestore.id}>Cancel</button>
+                  <button onClick={() => handleRestore(confirmRestore.id, false)} className="button primary" disabled={restoringId === confirmRestore.id}>
+                    {restoringId === confirmRestore.id ? 'Restoring...' : 'Restore'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
