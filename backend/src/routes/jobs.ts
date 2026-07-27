@@ -141,7 +141,7 @@ router.get(
           property: { select: { id: true, address: true, accessNotes: true, keyLocation: true } },
           client: { select: { id: true, name: true, email: true, phone: true } },
           assignedContractors: { select: { id: true, name: true } },
-          generatedDocuments: true,
+          generatedDocuments: { orderBy: { createdAt: 'desc' } },
         },
       });
 
