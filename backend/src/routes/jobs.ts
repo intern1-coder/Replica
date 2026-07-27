@@ -47,6 +47,7 @@ function withJobNumber<T extends { sequence: number }>(job: T) {
 router.get(
   '/',
   [
+    query('tab').optional().isIn(['active', 'completed', 'cancelled', 'archived']),
     query('status').optional().isIn(Object.values(JobStatus)),
     query('clientId').optional().isUUID(),
     query('propertyId').optional().isUUID(),
@@ -60,7 +61,8 @@ router.get(
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { status, clientId, propertyId, assignedContractorId, search, startDate, endDate } = req.query as {
+      const { tab, status, clientId, propertyId, assignedContractorId, search, startDate, endDate } = req.query as {
+        tab?: 'active' | 'completed' | 'cancelled' | 'archived';
         status?: JobStatus;
         clientId?: string;
         propertyId?: string;
@@ -74,8 +76,35 @@ router.get(
         req.query as Record<string, string | undefined>
       );
 
-      const where: any = { deletedAt: null };
-      if (status) where.status = status;
+      // "archived" (soft-deleted jobs) is only visible to members who can hard
+      // delete — everyone else silently falls back to the Active tab, mirroring
+      // clients.ts's includeInactive gating.
+      const effectiveTab = tab === 'archived' && !req.user!.can('jobs:delete') ? 'active' : (tab || 'active');
+
+      const where: any = {};
+      switch (effectiveTab) {
+        case 'completed':
+          where.deletedAt = null;
+          where.status = JobStatus.COMPLETED;
+          break;
+        case 'cancelled':
+          where.deletedAt = null;
+          where.status = JobStatus.CANCELLED;
+          break;
+        case 'archived':
+          where.deletedAt = { not: null };
+          break;
+        case 'active':
+        default:
+          where.deletedAt = null;
+          where.status = { notIn: [JobStatus.COMPLETED, JobStatus.CANCELLED] };
+          break;
+      }
+
+      // `status` is a secondary refinement, only meaningful within the Active
+      // tab — applying it under Completed/Cancelled/Archived would just
+      // contradict the tab's own status/deletedAt clause.
+      if (status && effectiveTab === 'active') where.status = status;
       if (clientId) where.clientId = clientId;
       if (propertyId) where.propertyId = propertyId;
       if (assignedContractorId) {
@@ -494,6 +523,49 @@ router.delete(
       logger.info('Job deleted', { jobId: req.params['id'], deletedById: req.user!.id });
       emitToAll('job:deleted', { jobId: req.params['id'], ts: new Date().toISOString() });
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── PATCH /api/jobs/:id/restore ─────────────────────────────────────────────────
+// Reactivates a soft-deleted (archived) job. Same permission as deletion.
+
+router.patch(
+  '/:id/restore',
+  requirePermission('jobs:delete'),
+  [param('id').isUUID()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const existing = await prisma.job.findFirst({
+        where: { id: req.params['id'], deletedAt: { not: null } },
+      });
+
+      if (!existing) {
+        res.status(404).json({ error: 'Not Found', message: 'Archived job not found.' });
+        return;
+      }
+
+      const updated = await prisma.job.update({
+        where: { id: req.params['id'] },
+        data: { deletedAt: null },
+      });
+
+      await logAudit({
+        entityType: 'Job',
+        entityId: updated.id,
+        action: AuditAction.UPDATE,
+        performedById: req.user!.id,
+        before: existing as any,
+        after: updated as any,
+        jobId: updated.id,
+      });
+
+      logger.info('Job restored', { jobId: updated.id, restoredById: req.user!.id });
+      emitToAll('job:created', { jobId: updated.id, ts: new Date().toISOString() });
+      res.json(updated);
     } catch (err) {
       next(err);
     }
