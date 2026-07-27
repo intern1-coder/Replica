@@ -24,18 +24,33 @@ export function usesLocalStorage(): boolean {
  * through the backend, keeping the VM's memory free.
  *
  * @param storageKey - The S3 object key (JobMedia.storageKey)
+ * @param filename - Human-readable download filename (e.g. "Diagnostic Report – 51 Tolcarne Drive.pdf").
+ *   Falls back to the raw storage key's basename when omitted. Local-disk downloads don't need this —
+ *   same-origin `/uploads/...` URLs are named via the frontend's `a.download` attribute instead.
  */
-export async function getMediaSignedUrl(storageKey: string, download: boolean = false): Promise<string> {
+export async function getMediaSignedUrl(storageKey: string, download: boolean = false, filename?: string): Promise<string> {
   if (usesLocalStorage()) {
     let url = `/uploads/${storageKey}`;
     if (download) url += '?download=true';
     return url;
   }
 
+  let disposition = 'inline';
+  if (download) {
+    if (filename) {
+      // ASCII fallback for clients that don't support the RFC 5987 filename*
+      // form — an en dash or non-ASCII address character just becomes "_".
+      const asciiFallback = filename.replace(/[^\x20-\x7E]/g, '_');
+      disposition = `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+    } else {
+      disposition = `attachment; filename="${storageKey.split('/').pop()}"`;
+    }
+  }
+
   const command = new GetObjectCommand({
     Bucket: config.storage.bucket,
     Key: storageKey,
-    ResponseContentDisposition: download ? `attachment; filename="${storageKey.split('/').pop()}"` : 'inline',
+    ResponseContentDisposition: disposition,
   });
 
   return getSignedUrl(s3, command, {

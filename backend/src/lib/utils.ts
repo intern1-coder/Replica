@@ -19,6 +19,22 @@ export function normalizeAddress(address: string): string {
     .trim();
 }
 
+/**
+ * Formats a Property's address for display on reports, appending the
+ * postcode when set — unless the address text already ends with it (many
+ * existing properties have the postcode typed into the free-text address).
+ */
+export function formatPropertyAddress(property: { address: string; postcode?: string | null }): string {
+  const { address, postcode } = property;
+  if (!postcode) return address;
+  const trimmedPostcode = postcode.trim();
+  if (!trimmedPostcode) return address;
+  if (address.toLowerCase().trimEnd().endsWith(trimmedPostcode.toLowerCase())) {
+    return address;
+  }
+  return `${address}, ${trimmedPostcode}`;
+}
+
 // ── Job number formatting ──────────────────────────────────────────────────────
 
 /**

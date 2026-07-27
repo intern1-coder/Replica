@@ -162,6 +162,7 @@ model Client {
 model Property {
   id                 String    @id @default(uuid())
   address            String
+  postcode           String?
   normalizedAddress  String
   buildingGroupId    String?
 

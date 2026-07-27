@@ -81,7 +81,7 @@ export function AdminSettings() {
                 <span className="text-secondary" style={{ fontSize: '0.875rem' }}>%</span>
               </div>
               <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                Applied to all new Quote and Completion Report PDFs. Existing PDFs retain the rate they were generated with.
+                Applied to all new Diagnostic Report and Completion Report PDFs. Existing PDFs retain the rate they were generated with.
               </p>
             </div>
 
