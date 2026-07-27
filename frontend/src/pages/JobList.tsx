@@ -43,6 +43,7 @@ export function JobList() {
   const { showToast } = useToast();
   const [listAnimated, setListAnimated] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState<Job | null>(null);
 
   const [activeTab, setActiveTab] = useState<JobTab>('active');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -150,6 +151,7 @@ export function JobList() {
   }, [socket, debouncedBackgroundLoad, activeTab]);
 
   const handleRestore = async (jobId: string) => {
+    setConfirmRestore(null);
     setRestoringId(jobId);
     try {
       await apiFetch(`/jobs/${jobId}/restore`, { method: 'PATCH' });
@@ -327,7 +329,7 @@ export function JobList() {
                         whileTap={{ scale: 0.95 }}
                         transition={{ type: "spring", duration: 0.3 }}
                         disabled={restoringId === j.id}
-                        onClick={() => handleRestore(j.id)}
+                        onClick={() => setConfirmRestore(j)}
                       >
                         <RotateCcw size={14} /> {restoringId === j.id ? 'Restoring...' : 'Restore'}
                       </motion.button>
@@ -383,6 +385,29 @@ export function JobList() {
           )}
         </div>
       )}
+
+      {confirmRestore && (
+        <div className="modal-backdrop entering" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-panel entering section-card" style={{ width: '400px', maxWidth: '90vw' }}>
+            <h3 style={{ margin: '0 0 var(--space-sm) 0', fontSize: '1rem' }}>Restore Job?</h3>
+            <p className="text-secondary" style={{ margin: '0 0 var(--space-md) 0', fontSize: '0.85rem', lineHeight: '1.4' }}>
+              This moves job #{confirmRestore.sequence} out of Archived and back to the {destinationTabLabel(confirmRestore.status)} tab.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmRestore(null)} className="button secondary" disabled={restoringId === confirmRestore.id}>Cancel</button>
+              <button onClick={() => handleRestore(confirmRestore.id)} className="button primary" disabled={restoringId === confirmRestore.id}>
+                {restoringId === confirmRestore.id ? 'Restoring...' : 'Restore'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
+}
+
+function destinationTabLabel(status: Job['status']): string {
+  if (status === 'COMPLETED') return 'Completed';
+  if (status === 'CANCELLED') return 'Not Proceeding';
+  return 'Active';
 }

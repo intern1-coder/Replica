@@ -49,6 +49,7 @@ export function JobDetail() {
   conflictErrorRef.current = conflictError;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmTransition, setConfirmTransition] = useState<{ status: string; label: string } | null>(null);
 
   const loadJob = useCallback(async (options?: FetchOptions) => {
     const background = options?.background ?? false;
@@ -264,7 +265,7 @@ export function JobDetail() {
             return (
               <button
                 key={nextStatus}
-                onClick={() => handleStatusChange(nextStatus)}
+                onClick={() => setConfirmTransition({ status: nextStatus, label })}
                 disabled={isUpdatingStatus || conflictError}
                 className={`button ${nextStatus === 'CANCELLED' ? 'danger' : 'primary'}`}
               >
@@ -296,6 +297,29 @@ export function JobDetail() {
               <button onClick={() => setShowDeleteConfirm(false)} className="button secondary" disabled={isDeleting}>Cancel</button>
               <button onClick={handleDelete} className="button danger" disabled={isDeleting}>
                 {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmTransition && (
+        <div className="modal-backdrop entering" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-panel entering section-card" style={{ width: '400px', maxWidth: '90vw' }}>
+            <h3 style={{ margin: '0 0 var(--space-sm) 0', fontSize: '1rem' }}>{confirmTransition.label}?</h3>
+            <p className="text-secondary" style={{ margin: '0 0 var(--space-md) 0', fontSize: '0.85rem', lineHeight: '1.4' }}>
+              {confirmTransition.status === 'CANCELLED'
+                ? `This moves job #${job.sequence} to the Not Proceeding tab. It stays intact and can be moved back at any time.`
+                : `This will move job #${job.sequence} from ${job.status.replace(/_/g, ' ')} to ${confirmTransition.status.replace(/_/g, ' ')}.`}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmTransition(null)} className="button secondary" disabled={isUpdatingStatus}>Cancel</button>
+              <button
+                onClick={() => { const status = confirmTransition.status; setConfirmTransition(null); handleStatusChange(status); }}
+                className={`button ${confirmTransition.status === 'CANCELLED' ? 'danger' : 'primary'}`}
+                disabled={isUpdatingStatus}
+              >
+                {isUpdatingStatus ? 'Updating...' : confirmTransition.label}
               </button>
             </div>
           </div>
