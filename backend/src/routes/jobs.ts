@@ -140,6 +140,7 @@ router.get(
         include: {
           property: { select: { id: true, address: true, accessNotes: true, keyLocation: true } },
           client: { select: { id: true, name: true, email: true, phone: true } },
+          tenant: { select: { id: true, name: true, phone: true, email: true } },
           assignedContractors: { select: { id: true, name: true } },
           generatedDocuments: true,
         },
@@ -304,6 +305,11 @@ router.patch(
     body('assignedContractorIds').optional({ nullable: true }).isArray(),
     body('assignedContractorIds.*').optional().isUUID(),
     body('scheduledDate').optional({ nullable: true }).isISO8601().toDate(),
+    // Snapshot fields are normally frozen at creation and never recomputed
+    // (Rules.md) — this scoped exception lets an operator refresh this one
+    // job's copy after correcting a typo on the underlying Tenant record.
+    body('tenantSnapshotName').optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+    body('tenantSnapshotPhone').optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -322,16 +328,27 @@ router.patch(
         return;
       }
 
-      const { description, diagnosticNotes, completionNotes, materials, quotedValue, assignedContractorIds, scheduledDate } =
-        req.body as {
-          description?: string | null;
-          diagnosticNotes?: string | null;
-          completionNotes?: string | null;
-          materials?: string | null;
-          quotedValue?: string | null;
-          assignedContractorIds?: string[] | null;
-          scheduledDate?: Date | null;
-        };
+      const {
+        description,
+        diagnosticNotes,
+        completionNotes,
+        materials,
+        quotedValue,
+        assignedContractorIds,
+        scheduledDate,
+        tenantSnapshotName,
+        tenantSnapshotPhone,
+      } = req.body as {
+        description?: string | null;
+        diagnosticNotes?: string | null;
+        completionNotes?: string | null;
+        materials?: string | null;
+        quotedValue?: string | null;
+        assignedContractorIds?: string[] | null;
+        scheduledDate?: Date | null;
+        tenantSnapshotName?: string | null;
+        tenantSnapshotPhone?: string | null;
+      };
 
       const updated = await prisma.job.update({
         where: { id: req.params['id'] },
@@ -343,6 +360,8 @@ router.patch(
           quotedValue: quotedValue !== undefined ? quotedValue : undefined,
           assignedContractors: assignedContractorIds ? { set: assignedContractorIds.map((id) => ({ id })) } : undefined,
           scheduledDate,
+          tenantSnapshotName,
+          tenantSnapshotPhone,
         },
         include: {
           property: { select: { id: true, address: true } },
@@ -372,6 +391,8 @@ router.patch(
           quotedValue: updated.quotedValue,
           scheduledDate: updated.scheduledDate,
           assignedContractors: updated.assignedContractors,
+          tenantSnapshotName: updated.tenantSnapshotName,
+          tenantSnapshotPhone: updated.tenantSnapshotPhone,
           version: updated.version,
           updatedAt: updated.updatedAt,
         },

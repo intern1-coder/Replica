@@ -23,6 +23,7 @@ These rules are non-negotiable constraints for any AI agent (or human) writing c
 - **Never build update or delete routes against `AuditLog`.** It is append-only by design — this is a hard constraint, not a default that can be relaxed later for convenience. If a feature seems to need editing an audit entry, that's a sign the feature needs a new audit entry instead.
 - Do not regenerate or overwrite an existing `GeneratedDocument` row's `storageKey` or `snapshotData` in place. A new version of a quote/report is a new row.
 - Do not let frozen fields (`Job.tenantSnapshotName`/`tenantSnapshotPhone`, `WorkLog.rateApplied`) be silently recomputed from live data on update — they are captured once, at creation/log time, by design.
+  - **Scoped exception:** editing a Tenant from a specific job's page (`EditTenantModal`) is allowed to also refresh that *one* job's `tenantSnapshotName`/`tenantSnapshotPhone` via an explicit follow-up `PATCH /jobs/:id` call, so a typo fix is visible immediately on the job the user is looking at. This must never be automatic/implicit — it only happens as a direct result of that specific user action, and it must never cascade to the tenant's other jobs, which keep their original historical snapshot.
 
 ## Infrastructure & Architecture
 
