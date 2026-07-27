@@ -15,6 +15,15 @@ export interface AutocompleteProps<T> {
   defaultOptionsTitle?: string;
 }
 
+// Stable identity for callers that omit `defaultOptions` — a `= []` default
+// parameter is a NEW array on every render, which retriggers the effect
+// below forever (it's in that effect's dependency array).
+const NO_DEFAULT_OPTIONS: never[] = [];
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function SearchableAutocomplete<T extends { id: string }>({
   endpoint,
   placeholder,
@@ -24,7 +33,7 @@ export function SearchableAutocomplete<T extends { id: string }>({
   selectedItem,
   allowCreate = false,
   onCreateNew,
-  defaultOptions = [],
+  defaultOptions = NO_DEFAULT_OPTIONS,
   defaultOptionsTitle
 }: AutocompleteProps<T>) {
   const [query, setQuery] = useState('');
@@ -57,7 +66,7 @@ export function SearchableAutocomplete<T extends { id: string }>({
     if (!isOpen) return;
 
     if (query.length < 2) {
-      setResults(defaultOptions.length > 0 ? defaultOptions : []);
+      setResults((prev) => (prev === defaultOptions ? prev : defaultOptions));
       setIsLoading(false);
       return;
     }
@@ -89,9 +98,10 @@ export function SearchableAutocomplete<T extends { id: string }>({
         if (e instanceof DOMException && e.name === 'AbortError') return;
         console.error(e);
       } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
+        // Reset even on abort — otherwise closing the dropdown mid-fetch can
+        // leave the spinner stuck the next time it opens with no new fetch
+        // to clear it (e.g. query already < 2 chars).
+        setIsLoading(false);
       }
     }, 300);
 
@@ -116,7 +126,7 @@ export function SearchableAutocomplete<T extends { id: string }>({
 
   const highlightMatch = (text: string, q: string) => {
     if (!q || !text) return text;
-    const parts = text.split(new RegExp(`(${q})`, 'gi'));
+    const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, 'gi'));
     return (
       <>
         {parts.map((part, i) =>
