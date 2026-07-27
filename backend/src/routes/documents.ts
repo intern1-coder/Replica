@@ -10,13 +10,14 @@ import s3 from '../lib/s3';
 import config from '../config';
 import { validate } from '../middleware/errorHandler';
 import { requireAuth, requirePermission } from '../middleware/auth';
-import { generatePdf } from '../services/pdfService';
+import { generatePdf, renderTemplate } from '../services/pdfService';
 import { formatJobNumber, formatPropertyAddress } from '../lib/utils';
 import logger from '../lib/logger';
 import { emitToJob } from '../lib/socket';
 import { getMediaSignedUrl } from '../services/storageService';
 import { getBase64Images } from '../services/imageEmbedder';
 import { getVatRate } from './settings';
+import juice from 'juice';
 
 const router = Router();
 router.use(requireAuth);
@@ -93,6 +94,15 @@ function buildDocumentFilename(doc: { type: DocumentType; snapshotData: unknown 
   }
 
   return `${name.slice(0, 200)}.pdf`;
+}
+
+function templateNameForDocType(type: DocumentType): string {
+  switch (type) {
+    case DocumentType.QUOTE: return 'quote';
+    case DocumentType.JOB_SHEET: return 'job_sheet';
+    case DocumentType.COMPLETION_REPORT: return 'completion_report';
+    default: return '';
+  }
 }
 
 // ── POST /api/documents/quote ──────────────────────────────────────────────────
@@ -422,11 +432,7 @@ router.patch(
         }
       });
 
-      // We need the template name
-      let templateName = '';
-      if (doc.type === 'QUOTE') templateName = 'quote';
-      if (doc.type === 'JOB_SHEET') templateName = 'job_sheet';
-      if (doc.type === 'COMPLETION_REPORT') templateName = 'completion_report';
+      const templateName = templateNameForDocType(doc.type);
 
       // Re-generate PDF with the updated snapshot
       const pdfBuffer = await generatePdf(templateName, newSnapshotData);
@@ -471,6 +477,44 @@ router.get(
       const filename = buildDocumentFilename(doc);
       const url = await getMediaSignedUrl(doc.storageKey, isDownload, filename);
       res.json({ id: doc.id, url, type: doc.type, filename });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── GET /api/documents/:id/html ─────────────────────────────────────────────────
+// Re-renders the report as a standalone, email-safe HTML string for pasting
+// directly into an email client. Not persisted — rebuilt on demand from the
+// same snapshotData used to generate the PDF, so it always matches it exactly.
+
+router.get(
+  '/:id/html',
+  [param('id').isUUID()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const doc = await prisma.generatedDocument.findUnique({
+        where: { id: req.params['id'] },
+      });
+
+      if (!doc) {
+        res.status(404).json({ error: 'Not Found', message: 'Document not found.' });
+        return;
+      }
+
+      const templateName = templateNameForDocType(doc.type);
+      if (!templateName) {
+        res.status(500).json({ error: 'Internal Server Error', message: 'Unknown document type.' });
+        return;
+      }
+
+      const rawHtml = await renderTemplate(templateName, doc.snapshotData);
+      // Most email clients strip <style> blocks on paste — inline the rules
+      // onto each element so tables, borders and colours survive.
+      const html = juice(rawHtml);
+
+      res.json({ html });
     } catch (err) {
       next(err);
     }

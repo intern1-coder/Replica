@@ -131,10 +131,15 @@ const getTemplate = async (templateName: string) => {
   return compiled;
 };
 
-export async function generatePdf(templateName: string, data: any): Promise<Buffer> {
+/** Renders a report template to a standalone HTML string — the same render step generatePdf feeds to Chromium. */
+export async function renderTemplate(templateName: string, data: any): Promise<string> {
   const logoSrc = await getLogoSrc();
   const template = await getTemplate(templateName);
-  const html = template({ ...data, logoSrc });
+  return template({ ...data, logoSrc });
+}
+
+export async function generatePdf(templateName: string, data: any): Promise<Buffer> {
+  const html = await renderTemplate(templateName, data);
 
   if (activePdfJobs >= MAX_CONCURRENT_PDFS) {
     throw new Error('PDF generation busy — please retry in a moment');

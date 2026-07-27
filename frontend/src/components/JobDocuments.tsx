@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../utils/api';
-import { FileText, Lock, Edit, X } from 'lucide-react';
+import { FileText, Lock, Edit, X, Copy } from 'lucide-react';
 import { DocumentEditModal } from './DocumentEditModal';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -43,6 +43,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
   const [docs, setDocs] = useState<GeneratedDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const [editingDoc, setEditingDoc] = useState<GeneratedDocument | null>(null);
@@ -226,6 +227,31 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
     }
   };
 
+  const handleCopyForEmail = async (id: string) => {
+    setCopyingId(id);
+    try {
+      const response = await apiFetch(`/documents/${id}/html`);
+      const html: string = response.html;
+      const plainText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([html], { type: 'text/html' }),
+            'text/plain': new Blob([plainText], { type: 'text/plain' }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(plainText);
+      }
+      showToast('Report copied — paste it into your email', 'success');
+    } catch (err) {
+      showToast('Failed to copy report for email', 'error');
+    } finally {
+      setCopyingId(null);
+    }
+  };
+
   const renderButton = (
     type: 'QUOTE' | 'JOB_SHEET' | 'COMPLETION_REPORT',
     label: string,
@@ -324,6 +350,13 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
                     </button>
                     <button onClick={() => handleDocAction(doc.id, 'download')} className="button secondary small">
                       Download
+                    </button>
+                    <button
+                      onClick={() => handleCopyForEmail(doc.id)}
+                      disabled={copyingId === doc.id}
+                      className="button secondary small flex items-center gap-2"
+                    >
+                      <Copy size={12} /> {copyingId === doc.id ? 'Copying...' : 'Copy for Email'}
                     </button>
                   </div>
                 </td>
