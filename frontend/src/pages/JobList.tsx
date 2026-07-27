@@ -16,6 +16,7 @@ export interface Job {
   status: 'TO_BE_CHECKED' | 'CHECKED' | 'QUOTED' | 'AUTHORISED' | 'PENDING_INVOICE' | 'COMPLETED' | 'CANCELLED';
   clientId: string;
   propertyId: string;
+  tenantId?: string | null;
   description: string | null;
   materials: string | null;
   quotedValue: number | null;
@@ -25,6 +26,7 @@ export interface Job {
   createdAt: string;
   client?: Client;
   property?: Property;
+  tenant?: { id: string; name: string; phone: string | null; email: string | null } | null;
   assignedContractors?: { id: string; name: string }[];
   scheduledDate?: string | null;
   updatedAt?: string;

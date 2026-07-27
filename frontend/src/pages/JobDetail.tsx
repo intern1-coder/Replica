@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { mergeJobPatch, type FetchOptions } from '../utils/refetch';
 import type { Job } from './JobList';
-import { ArrowLeft, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trash2, Edit } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { JobWorkLogs } from '../components/JobWorkLogs';
@@ -13,6 +13,8 @@ import { JobCommunications } from '../components/JobCommunications';
 import { JobAuditLogs } from '../components/JobAuditLogs';
 import { JobDocuments } from '../components/JobDocuments';
 import { JobEditDetails } from '../components/JobEditDetails';
+import { EditClientModal } from '../components/EditClientModal';
+import { EditTenantModal } from '../components/EditTenantModal';
 
 const allowedTransitions: Record<string, string[]> = {
   TO_BE_CHECKED: ['CHECKED', 'CANCELLED'],
@@ -41,6 +43,8 @@ export function JobDetail() {
   const [error, setError] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [conflictError, setConflictError] = useState(false);
+  const [isEditingClient, setIsEditingClient] = useState(false);
+  const [isEditingTenant, setIsEditingTenant] = useState(false);
   const conflictErrorRef = useRef(conflictError);
   conflictErrorRef.current = conflictError;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -153,6 +157,38 @@ export function JobDetail() {
       showToast(err.message || 'Failed to delete job', 'error');
       setIsDeleting(false);
       setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleClientSaved = (updatedClient: { id: string; name: string; email: string | null; phone: string | null }) => {
+    setJob((prev) => {
+      if (!prev || !prev.client) return prev;
+      return { ...prev, client: { ...prev.client, ...updatedClient } };
+    });
+    setIsEditingClient(false);
+    showToast('Client updated', 'success');
+  };
+
+  const handleTenantSaved = async (updatedTenant: { id: string; name: string; phone: string | null; email: string | null }) => {
+    setIsEditingTenant(false);
+    setJob((prev) => (prev ? { ...prev, tenant: { ...prev.tenant, ...updatedTenant } } : prev));
+    showToast('Tenant updated', 'success');
+
+    // Scoped exception to the "snapshot is frozen forever" rule (Rules.md):
+    // refresh only THIS job's copy so a typo fix is visible immediately.
+    // Other jobs for the same tenant keep their original snapshot.
+    if (!job) return;
+    try {
+      const updatedJob = await apiFetch(`/jobs/${job.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          tenantSnapshotName: updatedTenant.name,
+          tenantSnapshotPhone: updatedTenant.phone,
+        }),
+      });
+      setJob((prev) => (prev ? { ...prev, ...updatedJob } : prev));
+    } catch (err: any) {
+      showToast('Tenant saved, but failed to refresh this job\'s snapshot: ' + err.message, 'error');
     }
   };
 
@@ -270,8 +306,13 @@ export function JobDetail() {
 
       <div className="detail-grid" style={{ marginBottom: 'var(--space-xl)' }}>
         <div className="section-card" style={{ marginBottom: 0 }}>
-          <div className="section-card-header">
+          <div className="section-card-header flex justify-between items-center">
             <h3 style={{ fontSize: '1rem', margin: 0 }}>Client Information</h3>
+            {can('clients:edit') && job.client && (
+              <button onClick={() => setIsEditingClient(true)} className="button secondary small flex items-center gap-2">
+                <Edit size={12} /> Edit
+              </button>
+            )}
           </div>
           <div className="form-row">
             <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span>
@@ -288,8 +329,13 @@ export function JobDetail() {
         </div>
 
         <div className="section-card" style={{ marginBottom: 0 }}>
-          <div className="section-card-header">
+          <div className="section-card-header flex justify-between items-center">
             <h3 style={{ fontSize: '1rem', margin: 0 }}>Tenant Information (Snapshot)</h3>
+            {can('tenants:edit') && job.tenant && (
+              <button onClick={() => setIsEditingTenant(true)} className="button secondary small flex items-center gap-2">
+                <Edit size={12} /> Edit
+              </button>
+            )}
           </div>
           <div className="form-row">
             <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span>
@@ -301,6 +347,22 @@ export function JobDetail() {
           </div>
         </div>
       </div>
+
+      {isEditingClient && job.client && (
+        <EditClientModal
+          client={job.client}
+          onClose={() => setIsEditingClient(false)}
+          onSaved={handleClientSaved}
+        />
+      )}
+
+      {isEditingTenant && job.tenant && (
+        <EditTenantModal
+          tenant={job.tenant}
+          onClose={() => setIsEditingTenant(false)}
+          onSaved={handleTenantSaved}
+        />
+      )}
 
       <JobEditDetails job={job} onUpdated={() => loadJob({ background: true })} />
 
