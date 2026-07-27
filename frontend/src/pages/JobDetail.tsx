@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { mergeJobPatch, type FetchOptions } from '../utils/refetch';
 import type { Job } from './JobList';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { JobWorkLogs } from '../components/JobWorkLogs';
 import { JobPnL } from '../components/JobPnL';
 import { JobMediaUpload } from '../components/JobMedia';
@@ -32,7 +33,9 @@ type JobUpdatedPayload = {
 
 export function JobDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { socket, can, user } = useAuth();
+  const { showToast } = useToast();
   const [job, setJob] = useState<Job | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,6 +43,8 @@ export function JobDetail() {
   const [conflictError, setConflictError] = useState(false);
   const conflictErrorRef = useRef(conflictError);
   conflictErrorRef.current = conflictError;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadJob = useCallback(async (options?: FetchOptions) => {
     const background = options?.background ?? false;
@@ -137,6 +142,20 @@ export function JobDetail() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!job) return;
+    setIsDeleting(true);
+    try {
+      await apiFetch(`/jobs/${job.id}`, { method: 'DELETE' });
+      showToast('Job deleted', 'success');
+      navigate('/jobs');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete job', 'error');
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   if (isInitialLoading && !job) return <p>Loading job details...</p>;
   if (error && !job) return <p className="text-secondary">{error}</p>;
   if (!job) return <p>Job not found</p>;
@@ -183,36 +202,69 @@ export function JobDetail() {
           </p>
         </div>
 
-        {availableTransitions.length > 0 && (
-          <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
-            {availableTransitions.map(nextStatus => {
-              if (nextStatus === 'AUTHORISED' && !can('jobs:authorize')) {
-                return null;
-              }
-              // Final sign-off is reserved for Accounts (jobs:complete) after
-              // the invoice has been sent.
-              if (nextStatus === 'COMPLETED' && !can('jobs:complete')) {
-                return null;
-              }
+        <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+          {availableTransitions.map(nextStatus => {
+            if (nextStatus === 'AUTHORISED' && !can('jobs:authorize')) {
+              return null;
+            }
+            // Final sign-off is reserved for Accounts (jobs:complete) after
+            // the invoice has been sent.
+            if (nextStatus === 'COMPLETED' && !can('jobs:complete')) {
+              return null;
+            }
+            // Cancelling ("Not Proceeding") is a normal edit, same permission
+            // as every other transition button here — matches the backend's
+            // PATCH /jobs/:id/status guard.
+            if (nextStatus === 'CANCELLED' && !can('jobs:edit')) {
+              return null;
+            }
 
-              const label = nextStatus === 'PENDING_INVOICE'
-                ? 'Send to Accounts (Pending Invoice)'
-                : `Mark as ${nextStatus.replace(/_/g, ' ')}`;
+            const label = nextStatus === 'PENDING_INVOICE'
+              ? 'Send to Accounts (Pending Invoice)'
+              : nextStatus === 'CANCELLED'
+              ? 'Not Proceeding'
+              : `Mark as ${nextStatus.replace(/_/g, ' ')}`;
 
-              return (
-                <button
-                  key={nextStatus}
-                  onClick={() => handleStatusChange(nextStatus)}
-                  disabled={isUpdatingStatus || conflictError}
-                  className={`button ${nextStatus === 'CANCELLED' ? 'danger' : 'primary'}`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        )}
+            return (
+              <button
+                key={nextStatus}
+                onClick={() => handleStatusChange(nextStatus)}
+                disabled={isUpdatingStatus || conflictError}
+                className={`button ${nextStatus === 'CANCELLED' ? 'danger' : 'primary'}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+
+          {can('jobs:delete') && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={isUpdatingStatus || conflictError}
+              className="button danger flex items-center gap-2"
+            >
+              <Trash2 size={16} /> Delete
+            </button>
+          )}
+        </div>
       </div>
+
+      {showDeleteConfirm && (
+        <div className="modal-backdrop entering" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-panel entering section-card" style={{ width: '400px', maxWidth: '90vw' }}>
+            <h3 style={{ margin: '0 0 var(--space-sm) 0', fontSize: '1rem' }}>Delete Job?</h3>
+            <p className="text-secondary" style={{ margin: '0 0 var(--space-md) 0', fontSize: '0.85rem', lineHeight: '1.4' }}>
+              This moves job #{job.sequence} to the Archived tab. It is not permanently deleted and can be restored later.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowDeleteConfirm(false)} className="button secondary" disabled={isDeleting}>Cancel</button>
+              <button onClick={handleDelete} className="button danger" disabled={isDeleting}>
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <JobAuditLogs jobId={job.id} />
 

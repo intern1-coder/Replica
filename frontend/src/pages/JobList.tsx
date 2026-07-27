@@ -6,8 +6,9 @@ import type { Client } from './ClientList';
 import type { Property } from './PropertyList';
 import { useAuth } from '../contexts/AuthContext';
 import { useReminders } from '../contexts/ReminderContext';
-import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness, Calendar } from 'lucide-react';
+import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness, Calendar, RotateCcw } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useToast } from '../contexts/ToastContext';
 
 export interface Job {
   id: string;
@@ -29,14 +30,19 @@ export interface Job {
   updatedAt?: string;
 }
 
+type JobTab = 'active' | 'completed' | 'cancelled' | 'archived';
+
 export function JobList() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const { socket } = useAuth();
+  const { socket, can } = useAuth();
   const { byJobId } = useReminders();
+  const { showToast } = useToast();
   const [listAnimated, setListAnimated] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
+  const [activeTab, setActiveTab] = useState<JobTab>('active');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
@@ -57,6 +63,7 @@ export function JobList() {
     }
     try {
       const params = new URLSearchParams();
+      params.append('tab', activeTab);
       if (statusFilter) params.append('status', statusFilter);
       if (debouncedSearch) params.append('search', debouncedSearch);
       if (startDate) params.append('startDate', startDate);
@@ -83,7 +90,7 @@ export function JobList() {
         setIsLoading(false);
       }
     }
-  }, [statusFilter, debouncedSearch, startDate, endDate, page]);
+  }, [activeTab, statusFilter, debouncedSearch, startDate, endDate, page]);
 
   const loadJobsRef = useRef(loadJobs);
   loadJobsRef.current = loadJobs;
@@ -101,19 +108,33 @@ export function JobList() {
     if (!socket) return;
 
     const handleStatusChanged = (payload: { jobId: string; status: Job['status']; version: number }) => {
-      setJobs((prev) =>
-        prev.map((j) =>
+      setJobs((prev) => {
+        const patched = prev.map((j) =>
           j.id === payload.jobId
             ? { ...j, status: payload.status, version: payload.version }
             : j
-        )
-      );
+        );
+        // Archived is keyed on deletedAt, not status — nothing to evict here.
+        if (activeTab === 'archived') return patched;
+        const stillMatches = (status: Job['status']) => {
+          if (activeTab === 'completed') return status === 'COMPLETED';
+          if (activeTab === 'cancelled') return status === 'CANCELLED';
+          return status !== 'COMPLETED' && status !== 'CANCELLED';
+        };
+        return patched.filter((j) => j.id !== payload.jobId || stillMatches(j.status));
+      });
+      // A job that just transitioned INTO this tab (e.g. another job reaching
+      // COMPLETED while this tab is open) isn't in `prev` to patch — pick it
+      // up on the next background refresh.
+      debouncedBackgroundLoad();
     };
 
     const handleJobCreated = () => debouncedBackgroundLoad();
 
     const handleJobDeleted = (payload: { jobId: string }) => {
       setJobs((prev) => prev.filter((j) => j.id !== payload.jobId));
+      // A job just landed in Archived — refresh so it shows up there.
+      if (activeTab === 'archived') debouncedBackgroundLoad();
     };
 
     socket.on('job:statusChanged', handleStatusChanged);
@@ -124,7 +145,20 @@ export function JobList() {
       socket.off('job:created', handleJobCreated);
       socket.off('job:deleted', handleJobDeleted);
     };
-  }, [socket, debouncedBackgroundLoad]);
+  }, [socket, debouncedBackgroundLoad, activeTab]);
+
+  const handleRestore = async (jobId: string) => {
+    setRestoringId(jobId);
+    try {
+      await apiFetch(`/jobs/${jobId}/restore`, { method: 'PATCH' });
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+      showToast('Job restored', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to restore job', 'error');
+    } finally {
+      setRestoringId(null);
+    }
+  };
 
   const listContainer: any = {
     hidden: { opacity: 0 },
@@ -165,6 +199,21 @@ export function JobList() {
 
       {error && <div className="page-error">{error}</div>}
 
+      <div className="segment-control" style={{ marginBottom: 'var(--space-md)' }}>
+        {(['active', 'completed', 'cancelled', 'archived'] as const)
+          .filter((tab) => tab !== 'archived' || can('jobs:delete'))
+          .map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={activeTab === tab ? 'active' : ''}
+              onClick={() => { setActiveTab(tab); setPage(1); }}
+            >
+              {tab === 'active' ? 'Active' : tab === 'completed' ? 'Completed' : tab === 'cancelled' ? 'Not Proceeding' : 'Archived'}
+            </button>
+          ))}
+      </div>
+
       <div className="filter-bar">
         <div className="search-input-wrapper">
           <Search size={18} />
@@ -185,19 +234,19 @@ export function JobList() {
           <label className="form-label" style={{ margin: 0 }}>To:</label>
           <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} />
         </div>
-        <div className="flex items-center gap-2">
-          <label className="form-label" style={{ margin: 0 }}>Filter by Status:</label>
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} style={{ minWidth: '160px' }}>
-            <option value="">All Statuses</option>
-            <option value="TO_BE_CHECKED">To Be Checked</option>
-            <option value="CHECKED">Checked</option>
-            <option value="QUOTED">Quoted</option>
-            <option value="AUTHORISED">Authorised</option>
-            <option value="PENDING_INVOICE">Pending Invoice</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="CANCELLED">Cancelled</option>
-          </select>
-        </div>
+        {activeTab === 'active' && (
+          <div className="flex items-center gap-2">
+            <label className="form-label" style={{ margin: 0 }}>Filter by Status:</label>
+            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} style={{ minWidth: '160px' }}>
+              <option value="">All Statuses</option>
+              <option value="TO_BE_CHECKED">To Be Checked</option>
+              <option value="CHECKED">Checked</option>
+              <option value="QUOTED">Quoted</option>
+              <option value="AUTHORISED">Authorised</option>
+              <option value="PENDING_INVOICE">Pending Invoice</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {showInitialLoading ? (
@@ -229,9 +278,13 @@ export function JobList() {
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                 >
                   <div className="tabular-nums" data-label="Job #">
-                    <Link to={`/jobs/${j.id}`} className="font-medium" style={{ fontSize: '1rem' }}>
-                      #{j.sequence}
-                    </Link>
+                    {activeTab === 'archived' ? (
+                      <span className="font-medium" style={{ fontSize: '1rem' }}>#{j.sequence}</span>
+                    ) : (
+                      <Link to={`/jobs/${j.id}`} className="font-medium" style={{ fontSize: '1rem' }}>
+                        #{j.sequence}
+                      </Link>
+                    )}
                   </div>
                   <div data-label="Status" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <span className={`status-badge ${j.status.toLowerCase()}`}>
@@ -266,15 +319,27 @@ export function JobList() {
                     {new Date(j.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                   </div>
                   <div className="list-cell-action" style={{ textAlign: 'right' }}>
-                    <Link to={`/jobs/${j.id}`} style={{ textDecoration: 'none' }}>
+                    {activeTab === 'archived' ? (
                       <motion.button
                         className="button secondary small"
                         whileTap={{ scale: 0.95 }}
                         transition={{ type: "spring", duration: 0.3 }}
+                        disabled={restoringId === j.id}
+                        onClick={() => handleRestore(j.id)}
                       >
-                        Open <ExternalLink size={14} />
+                        <RotateCcw size={14} /> {restoringId === j.id ? 'Restoring...' : 'Restore'}
                       </motion.button>
-                    </Link>
+                    ) : (
+                      <Link to={`/jobs/${j.id}`} style={{ textDecoration: 'none' }}>
+                        <motion.button
+                          className="button secondary small"
+                          whileTap={{ scale: 0.95 }}
+                          transition={{ type: "spring", duration: 0.3 }}
+                        >
+                          Open <ExternalLink size={14} />
+                        </motion.button>
+                      </Link>
+                    )}
                   </div>
                 </motion.li>
               ))
