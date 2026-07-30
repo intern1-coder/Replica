@@ -54,8 +54,19 @@ List/detail GET routes across `tenants.ts`, `properties.ts`, `clients.ts`, `jobs
 `backend/Dockerfile`'s `COPY . .` swept the real `.env` file into the builder layer (which is cache-exported to GitHub Actions via `cache-to: type=gha,mode=max`), and — since it ran after `npm ci` — overwrote the freshly-installed `node_modules` with whatever's on the host filesystem, a real risk for `sharp`/`bcrypt` native binaries on the on-server build path (`deploy-single.sh` builds on the target host itself).
 **Fix applied**: added `backend/.dockerignore` excluding `.env`/`.env.*` (keeping `.env.example`), `node_modules/`, `dist/`, `uploads/`, `logs/`, `.git/`, `src/__tests__/`, `coverage/`. Verified with a real `docker build --target builder`: `/app/.env` and `/app/dist/__tests__` absent, `/app/dist/server.js` present.
 
-### H7. Real job PDFs, photos, and two audit-log files are committed in git history
-31 files under `backend/uploads/jobs/<uuid>/{documents,media}/` (completion reports, quotes, job sheets, site photos generated from real job/tenant data) plus two `backend/logs/*-audit.json` files are tracked in git, predating the `.gitignore` rules that now cover those paths for new files. Requires a history rewrite (`git filter-repo`), not just `git rm --cached`, and coordination since it changes commit hashes on every clone. **Not fixed in this pass** — flagging for a deliberate, scheduled cleanup rather than doing a history rewrite unprompted.
+### H7. Real job PDFs, photos, and two audit-log files are committed in git history — PARTIALLY FIXED (2026-07-30)
+31 files under `backend/uploads/jobs/<uuid>/{documents,media}/` (completion reports, quotes, job sheets, site photos generated from real job/tenant data) plus two `backend/logs/*-audit.json` files were tracked in git at current HEAD — not just old history — predating the `.gitignore` rules that now cover those paths for new files.
+
+**Fixed so far**: all 33 files removed from HEAD via `git rm --cached` (untracked only — the files themselves are left on local disk, nothing was deleted from the filesystem). New clones of the repo from this point forward no longer receive them. `.gitignore` already excludes `backend/uploads/` and `backend/logs/`, so they won't be re-added by accident.
+
+**Still open — the history rewrite**: these files are still recoverable from old commits (`git log --all`, `git show <old-sha>:<path>`) until the actual git history is rewritten with `git filter-repo` and force-pushed. Deliberately not done yet — it changes every commit hash from the point of the earliest affected commit onward, requires a coordinated force-push, and the live EC2 deployment's `/app` (a `git clone` that gets updated via `git pull` per `docs/DEPLOY.md`) will need to be reset or re-cloned afterward since a plain `git pull` fails post-rewrite. The GitHub repo (`affinitty_01`) currently appears to be **private** (unauthenticated API lookup returned 404), so this is not a live public leak — it's cleanup, not an emergency. Do this during a window when you can SSH into the server right after the force-push to reconcile its clone. Rough runbook when ready:
+```
+git filter-repo --path backend/uploads --path backend/logs --invert-paths
+git push origin --force --all
+git push origin --force --tags
+# then, on the EC2 server:
+cd /app && git fetch origin && git reset --hard origin/master
+```
 
 ### H8. Blue-green `deploy.sh` references unset variables under `set -u` ✅ FIXED (2026-07-30)
 Unlike `deploy-single.sh` (used for the current 1GB single-container setup), `scripts/deploy.sh` (for ≥2GB blue-green deploys) never sourced `/app/backend/.env` before referencing `${GHCR_OWNER}` — under `set -euo pipefail` this aborted before the first real step. Also, `${DATABASE_URL}` at the `pg_dump` line expanded in the *host* shell rather than inside the container it execs into — the host `.env`'s `DATABASE_URL` points at `localhost`, which isn't reachable from inside the container's network namespace (the container's own env correctly points at the `db` service per `docker-compose.prod.yml`).
