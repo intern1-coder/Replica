@@ -83,7 +83,8 @@ SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USER=you@example.com
 SMTP_PASS=<smtp-password>
-SMTP_FROM=noreply@yourdomain.com
+EMAIL_FROM=noreply@yourdomain.com
+EMAIL_FROM_NAME=Affinity Workspace
 
 # AWS S3 (for file uploads) — bucket + IAM user from AWS_EC2_PROVISIONING.md
 STORAGE_REGION=<region>              # e.g. eu-west-2

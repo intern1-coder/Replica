@@ -55,7 +55,11 @@ const config = {
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     user: requireEnv('SMTP_USER'),
     pass: requireEnv('SMTP_PASS'),
-    from: process.env.EMAIL_FROM || 'noreply@affinity.local',
+    // EMAIL_FROM is the canonical name; SMTP_FROM is a legacy alias kept so
+    // an existing deployment's .env (or docker-compose.yml) using the old
+    // name still works instead of silently falling through to the
+    // unroutable default below.
+    from: process.env.EMAIL_FROM || process.env.SMTP_FROM || 'noreply@affinity.local',
     fromName: process.env.EMAIL_FROM_NAME || 'Affinity Workspace',
   },
 
@@ -100,6 +104,18 @@ if (config.env === 'production') {
     if (!value.startsWith('https://')) {
       throw new Error(`${name} must use https:// in production (got: ${value})`);
     }
+  }
+
+  // JWT_SECRET is only checked for truthiness by requireEnv() above — a
+  // short or placeholder value (e.g. .env.example's literal
+  // "change-me-to-a-long-random-secret-at-least-64-chars") boots fine and
+  // lets anyone forge a SUPER_ADMIN token. Fail fast in production only —
+  // tests intentionally use a short fixed secret (see __tests__/setup.ts).
+  if (config.jwt.secret.length < 32 || config.jwt.secret.includes('change-me')) {
+    throw new Error(
+      'JWT_SECRET is missing, too short, or still the .env.example placeholder. ' +
+      'Set a random secret of at least 32 characters before starting in production.'
+    );
   }
 }
 
