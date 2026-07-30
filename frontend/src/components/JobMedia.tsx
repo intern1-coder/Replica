@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { X } from 'lucide-react';
+import { X, CheckSquare } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { API_BASE } from '../config';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,6 +16,8 @@ interface JobMediaItem {
   createdAt: string;
 }
 
+type MediaSection = 'DIAGNOSTIC' | 'COMPLETION';
+
 export function JobMediaUpload({ jobId }: { jobId: string }) {
   const { socket, user, can } = useAuth();
   const { showToast } = useToast();
@@ -27,6 +29,13 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
   const [uploadStatusComp, setUploadStatusComp] = useState('');
   const [error, setError] = useState('');
   const [deleteState, setDeleteState] = useState<Record<string, 'confirm'>>({});
+
+  // Multi-select bulk delete — independent per section (Diagnostic/Completion)
+  // so selecting photos in one doesn't affect the other.
+  const [selectMode, setSelectMode] = useState<Record<MediaSection, boolean>>({ DIAGNOSTIC: false, COMPLETION: false });
+  const [selectedIds, setSelectedIds] = useState<Record<MediaSection, Set<string>>>({ DIAGNOSTIC: new Set(), COMPLETION: new Set() });
+  const [bulkConfirm, setBulkConfirm] = useState<Record<MediaSection, boolean>>({ DIAGNOSTIC: false, COMPLETION: false });
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const canDeleteMedia = can('media:delete');
 
@@ -165,6 +174,61 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
     [canDeleteMedia, showToast]
   );
 
+  const toggleSelectMode = useCallback((type: MediaSection) => {
+    setSelectMode((prev) => ({ ...prev, [type]: !prev[type] }));
+    setSelectedIds((prev) => ({ ...prev, [type]: new Set() }));
+    setBulkConfirm((prev) => ({ ...prev, [type]: false }));
+  }, []);
+
+  const toggleSelected = useCallback((type: MediaSection, id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev[type]);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return { ...prev, [type]: next };
+    });
+  }, []);
+
+  const handleBulkDelete = useCallback(
+    async (type: MediaSection) => {
+      if (!canDeleteMedia) return;
+      const ids = Array.from(selectedIds[type]);
+      if (ids.length === 0) return;
+
+      setIsBulkDeleting(true);
+      const removedItems = mediaList.filter((m) => ids.includes(m.id));
+      setMediaList((prev) => prev.filter((m) => !ids.includes(m.id)));
+
+      try {
+        const results = await Promise.allSettled(
+          ids.map((id) => apiFetch(`/job-media/${id}`, { method: 'DELETE' }))
+        );
+        const failedIds = ids.filter((_, i) => results[i].status === 'rejected');
+        if (failedIds.length > 0) {
+          const failedItems = removedItems.filter((m) => failedIds.includes(m.id));
+          setMediaList((prev) => prependById(prev, failedItems));
+          showToast(
+            failedIds.length === ids.length
+              ? 'Failed to delete photos'
+              : `Deleted ${ids.length - failedIds.length} of ${ids.length} photos — ${failedIds.length} failed`,
+            'error'
+          );
+        } else {
+          showToast(`Deleted ${ids.length} photo${ids.length === 1 ? '' : 's'}`, 'success');
+        }
+      } finally {
+        setIsBulkDeleting(false);
+        setSelectedIds((prev) => ({ ...prev, [type]: new Set() }));
+        setBulkConfirm((prev) => ({ ...prev, [type]: false }));
+        setSelectMode((prev) => ({ ...prev, [type]: false }));
+      }
+    },
+    [canDeleteMedia, selectedIds, mediaList, showToast]
+  );
+
   const diagRootProps = useDropzone({
     onDrop: (files) => uploadFiles(files, 'DIAGNOSTIC'),
     accept: { 'image/*': [] },
@@ -199,16 +263,37 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
   const diagMedia = mediaList.filter((m) => m.mediaType === 'DIAGNOSTIC');
   const compMedia = mediaList.filter((m) => m.mediaType === 'COMPLETION');
 
-  const renderMediaGrid = (items: JobMediaItem[]) => (
+  const renderMediaGrid = (items: JobMediaItem[], type: MediaSection) => (
     <div className="media-grid">
       {items.map((media) => {
         const isConfirming = deleteState[media.id] === 'confirm';
+        const inSelectMode = selectMode[type];
+        const isSelected = selectedIds[type].has(media.id);
         return (
-          <div key={media.id} className="media-item" style={{ position: 'relative' }}>
+          <div
+            key={media.id}
+            className={`media-item${inSelectMode ? ' selectable' : ''}${isSelected ? ' selected' : ''}`}
+            style={{ position: 'relative' }}
+            onClick={inSelectMode ? () => toggleSelected(type, media.id) : undefined}
+          >
+            {inSelectMode && (
+              <input
+                type="checkbox"
+                className="media-select-checkbox"
+                checked={isSelected}
+                onChange={() => toggleSelected(type, media.id)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
+
             {media.presignedUrl ? (
-              <a href={media.presignedUrl} target="_blank" rel="noopener noreferrer">
+              inSelectMode ? (
                 <img src={media.presignedUrl} alt="Job media" />
-              </a>
+              ) : (
+                <a href={media.presignedUrl} target="_blank" rel="noopener noreferrer">
+                  <img src={media.presignedUrl} alt="Job media" />
+                </a>
+              )
             ) : (
               <div
                 className="flex items-center justify-center text-muted"
@@ -218,7 +303,7 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
               </div>
             )}
 
-            {canDeleteMedia && !isConfirming && (
+            {!inSelectMode && canDeleteMedia && !isConfirming && (
               <button
                 className="media-delete-btn"
                 title="Delete image"
@@ -230,7 +315,7 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
               </button>
             )}
 
-            {canDeleteMedia && isConfirming && (
+            {!inSelectMode && canDeleteMedia && isConfirming && (
               <div className="media-confirm-row">
                 <button
                   className="media-confirm-delete"
@@ -266,6 +351,71 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
     </div>
   );
 
+  const renderSectionActions = (type: MediaSection, items: JobMediaItem[]) => {
+    if (!canDeleteMedia || items.length === 0) return null;
+
+    if (!selectMode[type]) {
+      return (
+        <div className="media-section-actions">
+          <button
+            type="button"
+            className="button secondary small flex items-center gap-1"
+            onClick={() => toggleSelectMode(type)}
+          >
+            <CheckSquare size={12} /> Select
+          </button>
+        </div>
+      );
+    }
+
+    const count = selectedIds[type].size;
+
+    if (bulkConfirm[type]) {
+      return (
+        <div className="media-section-actions">
+          <span className="text-secondary" style={{ fontSize: '0.8rem' }}>Delete {count} photo{count === 1 ? '' : 's'}?</span>
+          <button
+            type="button"
+            className="button danger small"
+            disabled={isBulkDeleting}
+            onClick={() => handleBulkDelete(type)}
+          >
+            {isBulkDeleting ? 'Deleting…' : 'Confirm'}
+          </button>
+          <button
+            type="button"
+            className="button secondary small"
+            disabled={isBulkDeleting}
+            onClick={() => setBulkConfirm((prev) => ({ ...prev, [type]: false }))}
+          >
+            Cancel
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="media-section-actions">
+        <span className="text-secondary" style={{ fontSize: '0.8rem' }}>{count} selected</span>
+        <button
+          type="button"
+          className="button danger small"
+          disabled={count === 0}
+          onClick={() => setBulkConfirm((prev) => ({ ...prev, [type]: true }))}
+        >
+          Delete Selected
+        </button>
+        <button
+          type="button"
+          className="button secondary small"
+          onClick={() => toggleSelectMode(type)}
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="section-card">
       <div className="section-card-header" style={{ marginBottom: 'var(--space-md)' }}>
@@ -282,6 +432,7 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
             <div className="media-section-header">
               <span className="media-section-title">Diagnostic Photos</span>
               <span className="media-section-badge before">Before</span>
+              {renderSectionActions('DIAGNOSTIC', diagMedia)}
             </div>
 
             {uploadStatusDiag && (
@@ -306,13 +457,14 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
               )}
             </div>
 
-            {renderMediaGrid(diagMedia)}
+            {renderMediaGrid(diagMedia, 'DIAGNOSTIC')}
           </div>
 
           <div className="media-section">
             <div className="media-section-header">
               <span className="media-section-title">Completion Photos</span>
               <span className="media-section-badge after">After</span>
+              {renderSectionActions('COMPLETION', compMedia)}
             </div>
 
             {uploadStatusComp && (
@@ -337,7 +489,7 @@ export function JobMediaUpload({ jobId }: { jobId: string }) {
               )}
             </div>
 
-            {renderMediaGrid(compMedia)}
+            {renderMediaGrid(compMedia, 'COMPLETION')}
           </div>
         </div>
       )}

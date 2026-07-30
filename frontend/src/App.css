@@ -1210,6 +1210,34 @@
 .media-confirm-delete:hover { opacity: 0.85; }
 .media-confirm-cancel:hover { opacity: 0.75; }
 
+/* Multi-select mode for bulk delete */
+.media-item.selectable {
+  cursor: pointer;
+}
+
+.media-item.selected {
+  outline: 2px solid var(--color-brand);
+  outline-offset: -2px;
+}
+
+.media-select-checkbox {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 20px;
+  height: 20px;
+  z-index: 2;
+  accent-color: var(--color-brand);
+  cursor: pointer;
+}
+
+.media-section-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
 /* Audit change table */
 .audit-changes-table {
   width: 100%;

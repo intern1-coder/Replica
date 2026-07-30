@@ -455,7 +455,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
                       </span>
                       <button
                         onClick={async () => { setShowJobSheetDialog(false); await generateJobSheet(eng.id); }}
-                        className="button secondary small"
+                        className="button primary small"
                         disabled={isGenerating}
                       >
                         Generate
