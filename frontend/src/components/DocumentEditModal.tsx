@@ -53,19 +53,22 @@ function formatSnapshotTime(time: string): string {
 }
 
 export function DocumentEditModal({ documentId, documentType, initialSnapshot, onClose, onSaved }: DocumentEditModalProps) {
-  const isJobSheet = documentType === 'JOB_SHEET';
-
   const [snapshot, setSnapshot] = useState<any>(() => {
     const clean = { ...initialSnapshot };
     // Images are base64 blobs — strip them from editable state to keep the form
     // lightweight; they are re-attached from initialSnapshot on save.
     delete clean.diagnosticImages;
     delete clean.completionImages;
-    // Boolean flags set at generation time — not editable here (regenerate the
-    // report from the job page to change them).
+    // Boolean/id flags set at generation time — not editable here (regenerate
+    // the report from the job page to change them). The renderer below has no
+    // checkbox input, so leaving these in would render each as a plain text
+    // input and save it back as a string, corrupting the regenerated PDF.
     delete clean.includeWorkLogs;
     delete clean.includeDiagnosticImages;
-    if (isJobSheet) clean.status = 'AUTHORISED';
+    delete clean.includeHours;
+    delete clean.includeRates;
+    delete clean.engineerId;
+    delete clean.hoursColSpan;
     return clean;
   });
 
@@ -85,12 +88,15 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
         payload.scheduledDate = dateInput ? formatSnapshotDate(dateInput) : 'TBD';
         payload.scheduledTime = timeInput ? formatSnapshotTime(timeInput) : 'TBD';
       }
-      if (isJobSheet) payload.status = 'AUTHORISED';
 
       if (initialSnapshot.diagnosticImages) payload.diagnosticImages = initialSnapshot.diagnosticImages;
       if (initialSnapshot.completionImages) payload.completionImages = initialSnapshot.completionImages;
       if ('includeWorkLogs' in initialSnapshot) payload.includeWorkLogs = initialSnapshot.includeWorkLogs;
       if ('includeDiagnosticImages' in initialSnapshot) payload.includeDiagnosticImages = initialSnapshot.includeDiagnosticImages;
+      if ('includeHours' in initialSnapshot) payload.includeHours = initialSnapshot.includeHours;
+      if ('includeRates' in initialSnapshot) payload.includeRates = initialSnapshot.includeRates;
+      if ('engineerId' in initialSnapshot) payload.engineerId = initialSnapshot.engineerId;
+      if ('hoursColSpan' in initialSnapshot) payload.hoursColSpan = initialSnapshot.hoursColSpan;
 
       await apiFetch(`/documents/${documentId}`, {
         method: 'PATCH',
@@ -118,9 +124,6 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
   };
 
   const renderInput = (key: string, value: any, onChange: (val: string) => void) => {
-    if (key === 'status' && isJobSheet) {
-      return <input type="text" value="AUTHORISED" readOnly style={{ width: '100%', padding: '0.4rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }} />;
-    }
     if (key === 'scheduledDate') {
       return (
         <input

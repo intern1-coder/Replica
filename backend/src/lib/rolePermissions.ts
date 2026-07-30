@@ -50,14 +50,18 @@ const PM: PermissionKey[] = [
 // invoice workflow: review completion reports and sign jobs off as COMPLETED.
 const ACCOUNTS: PermissionKey[] = [
   ...OPEN_VIEWS,
+  'engineers:view',
   'financials:view',
   'engineer_costs:view',
   'documents:view',
   'jobs:complete',
 ];
 
-// CONTRACTOR: view-only of the open resources.
-const CONTRACTOR: PermissionKey[] = [...OPEN_VIEWS];
+// CONTRACTOR: view-only of the open resources. Engineer names (not rates —
+// engineer_costs:view is withheld) are already visible via the `contractor`
+// field on work logs, so gating GET /api/engineers would only break the
+// work-log form's picker without hiding anything.
+const CONTRACTOR: PermissionKey[] = [...OPEN_VIEWS, 'engineers:view'];
 
 /** Presets for the non-admin roles. ADMIN/OWNER resolve to all permissions. */
 export const ROLE_PRESETS: Record<'PM' | 'ACCOUNTS' | 'CONTRACTOR', PermissionKey[]> = {

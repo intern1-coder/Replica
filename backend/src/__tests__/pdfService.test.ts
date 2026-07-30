@@ -1,9 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { generatePdf } from '../services/pdfService';
+import { generatePdf, renderTemplate } from '../services/pdfService';
+import config from '../config';
 
 // Mock playwright to avoid ESM import errors in jest and to avoid
-// needing a real Chromium installation for unit tests.
+// needing a real Chromium installation for unit tests. __mockPage is a
+// test-only escape hatch (not part of the real playwright module) so a
+// single test can force page.pdf() to reject and exercise the render-failure
+// path without depending on other tests' execution order.
 jest.mock('playwright', () => {
   const mockPage = {
     setContent: jest.fn().mockResolvedValue(undefined),
@@ -23,8 +27,12 @@ jest.mock('playwright', () => {
     chromium: {
       launch: jest.fn().mockResolvedValue(mockBrowser),
     },
+    __mockPage: mockPage,
   };
 });
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { __mockPage: mockPdfPage } = require('playwright');
 
 describe('PDF Generation Service', () => {
   it('quote template includes shared header partial (footer rendered by Puppeteer)', () => {
@@ -74,7 +82,10 @@ describe('PDF Generation Service', () => {
 
     const pdfBuffer = await generatePdf('job_sheet', data);
     expect(Buffer.isBuffer(pdfBuffer)).toBe(true);
-    expect(pdfBuffer.length).toBeGreaterThan(10);
+    // Exact match against the mocked page.pdf() output — length > 10 would
+    // also pass for the dummy fallback buffer, which is exactly the hole
+    // that let a total render failure look like success.
+    expect(pdfBuffer).toEqual(Buffer.from('mock-pdf-content'));
   }, 10000);
 
   it('generates a Completion Report PDF', async () => {
@@ -88,8 +99,56 @@ describe('PDF Generation Service', () => {
 
     const pdfBuffer = await generatePdf('completion_report', data);
     expect(Buffer.isBuffer(pdfBuffer)).toBe(true);
-    expect(pdfBuffer.length).toBeGreaterThan(10);
+    expect(pdfBuffer).toEqual(Buffer.from('mock-pdf-content'));
   }, 10000);
+
+  it('generatePdf rejects (does not fall back to a placeholder) when rendering fails and allowMockFallback is off', async () => {
+    const originalFallback = config.puppeteer.allowMockFallback;
+    (config.puppeteer as any).allowMockFallback = false;
+    try {
+      mockPdfPage.pdf.mockRejectedValueOnce(new Error('render crashed'));
+      await expect(generatePdf('quote', { jobNumber: 'JOB-0099' })).rejects.toThrow('render crashed');
+    } finally {
+      (config.puppeteer as any).allowMockFallback = originalFallback;
+    }
+  }, 10000);
+
+  it('job_sheet template renders an Hours Logged table with a total when includeHours is true', async () => {
+    const html = await renderTemplate('job_sheet', {
+      jobNumber: 'JOB-0004',
+      contractorName: 'Bob Builder',
+      propertyAddress: '1 Test St',
+      status: 'AUTHORISED',
+      includeHours: true,
+      includeRates: false,
+      hoursColSpan: 2,
+      workLogs: [
+        { date: '14/07/2026', contractorName: 'Bob Builder', hours: '4.00', notes: '' },
+        { date: '15/07/2026', contractorName: 'Bob Builder', hours: '3.50', notes: '' },
+      ],
+      totalHours: '7.50',
+    });
+    expect(html).toContain('Hours Logged');
+    expect(html).toContain('7.50');
+    expect(html).not.toContain('Rate (£)');
+  });
+
+  it('job_sheet template includes the Rate column and labour total only when includeRates is true', async () => {
+    const html = await renderTemplate('job_sheet', {
+      jobNumber: 'JOB-0005',
+      contractorName: 'Bob Builder',
+      propertyAddress: '1 Test St',
+      status: 'AUTHORISED',
+      includeHours: true,
+      includeRates: true,
+      hoursColSpan: 3,
+      workLogs: [{ date: '14/07/2026', contractorName: 'Bob Builder', hours: '4.00', rate: '35.00', lineTotal: '140.00', notes: '' }],
+      totalHours: '4.00',
+      totalLabour: '140.00',
+    });
+    expect(html).toContain('Rate (£)');
+    expect(html).toContain('140.00');
+  });
 
   it('Diagnostic Report template has bold main heading (item 13)', () => {
     const templatesDir = path.join(__dirname, '../../templates');

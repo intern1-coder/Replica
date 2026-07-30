@@ -39,7 +39,7 @@ interface Engineer {
 
 export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContractors }: { jobId: string; jobStatus: string; scheduledDate?: string | null; assignedContractors?: Engineer[] }) {
   const { showToast } = useToast();
-  const { socket } = useAuth();
+  const { socket, can } = useAuth();
   const [docs, setDocs] = useState<GeneratedDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -57,6 +57,12 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
   const [showJobSheetDialog, setShowJobSheetDialog] = useState(false);
   const [customEngineerName, setCustomEngineerName] = useState('');
   const [isGeneratingMultiple, setIsGeneratingMultiple] = useState(false);
+  // Hours ON by default (the sheet's whole purpose is showing the engineer
+  // their own hours); rates OFF by default and only offered to users who can
+  // already see rates elsewhere — both enforced again server-side.
+  const [includeJobSheetHours, setIncludeJobSheetHours] = useState(true);
+  const [includeJobSheetRates, setIncludeJobSheetRates] = useState(false);
+  const [jobSheetHoursByEngineer, setJobSheetHoursByEngineer] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadDocs();
@@ -88,13 +94,19 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
     return rule ? rule.allowed.includes(jobStatus) : false;
   };
 
-  const generateJobSheet = async (engineerName?: string) => {
+  const generateJobSheet = async (engineerId?: string, engineerName?: string) => {
     setIsGenerating(true);
     setError('');
     try {
       const newDoc = await apiFetch('/documents/job-sheet', {
         method: 'POST',
-        body: JSON.stringify({ jobId, engineerName: engineerName || undefined }),
+        body: JSON.stringify({
+          jobId,
+          engineerId: engineerId || undefined,
+          engineerName: engineerName || undefined,
+          includeHours: includeJobSheetHours,
+          includeRates: includeJobSheetRates,
+        }),
       });
       setDocs((prev) => [newDoc, ...prev]);
       showToast('Job Sheet generated', 'success');
@@ -115,7 +127,12 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       try {
         const doc = await apiFetch('/documents/job-sheet', {
           method: 'POST',
-          body: JSON.stringify({ jobId, engineerName: eng.name }),
+          body: JSON.stringify({
+            jobId,
+            engineerId: eng.id,
+            includeHours: includeJobSheetHours,
+            includeRates: includeJobSheetRates,
+          }),
         });
         newDocs.push(doc);
       } catch (err: any) {
@@ -142,6 +159,13 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
     if (type === 'JOB_SHEET') {
       setCustomEngineerName('');
       setShowJobSheetDialog(true);
+      apiFetch(`/work-logs/summary?jobId=${jobId}`)
+        .then((res) => {
+          const byId: Record<string, string> = {};
+          (res.byContractor || []).forEach((c: { contractorId: string; hours: string }) => { byId[c.contractorId] = c.hours; });
+          setJobSheetHoursByEngineer(byId);
+        })
+        .catch(() => setJobSheetHoursByEngineer({}));
       return;
     }
 
@@ -395,14 +419,38 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
             </div>
             <div style={{ padding: 'var(--space-md)', display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
 
+              <div className="flex" style={{ flexDirection: 'column', gap: 'var(--space-xs)' }}>
+                <label className="flex items-center gap-2" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={includeJobSheetHours} onChange={(e) => setIncludeJobSheetHours(e.target.checked)} />
+                  Include Hours Logged table
+                </label>
+                {can('engineer_costs:view') && (
+                  <label className="flex items-center gap-2" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={includeJobSheetRates}
+                      onChange={(e) => setIncludeJobSheetRates(e.target.checked)}
+                      disabled={!includeJobSheetHours}
+                    />
+                    Include rates / labour cost
+                  </label>
+                )}
+              </div>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '0.25rem 0' }} />
+
               {assignedContractors && assignedContractors.length > 0 && (
                 <>
                   <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>Select an engineer to generate their individual sheet:</p>
                   {assignedContractors.map((eng) => (
                     <div key={eng.id} className="flex justify-between items-center" style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-bg)' }}>
-                      <span className="font-medium">{eng.name}</span>
+                      <span className="font-medium">
+                        {eng.name}
+                        {jobSheetHoursByEngineer[eng.id] !== undefined && (
+                          <span className="text-secondary" style={{ fontWeight: 400, fontSize: '0.8rem' }}> — {Number(jobSheetHoursByEngineer[eng.id]).toFixed(1)} hrs logged</span>
+                        )}
+                      </span>
                       <button
-                        onClick={async () => { setShowJobSheetDialog(false); await generateJobSheet(eng.name); }}
+                        onClick={async () => { setShowJobSheetDialog(false); await generateJobSheet(eng.id); }}
                         className="button secondary small"
                         disabled={isGenerating}
                       >
@@ -423,7 +471,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
                 </>
               )}
 
-              <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>Or generate with a custom / additional name:</p>
+              <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>Or generate with a custom / additional name (not tied to a real engineer — hours can't be filtered to them):</p>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -435,7 +483,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
                 <button
                   onClick={async () => {
                     setShowJobSheetDialog(false);
-                    await generateJobSheet(customEngineerName.trim() || undefined);
+                    await generateJobSheet(undefined, customEngineerName.trim() || undefined);
                   }}
                   className="button primary"
                   disabled={isGenerating}

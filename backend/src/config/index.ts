@@ -80,6 +80,10 @@ const config = {
     // Optional override. Unset = Playwright's bundled Chromium
     // (`npx playwright install chromium`). Set to a system Chrome path if preferred.
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+    // When Chromium fails to launch/render, generatePdf() throws by default —
+    // a blank "Mock PDF Generated" document must never be silently uploaded
+    // and persisted as if it were real. Only tests may opt into that fallback.
+    allowMockFallback: process.env.NODE_ENV === 'test',
   },
 } as const;
 

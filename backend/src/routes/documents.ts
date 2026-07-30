@@ -19,6 +19,9 @@ import { getMediaSignedUrl } from '../services/storageService';
 import { getBase64Images } from '../services/imageEmbedder';
 import { getVatRate } from './settings';
 import juice from 'juice';
+import { ACTIVE_ASSIGNED_CONTRACTORS } from '../lib/prismaSelects';
+import { buildJobSheetSnapshot, resolveJobSheetContractor } from '../services/jobSheetSnapshot';
+import { summariseWorkLogs } from '../services/workLogSummary';
 
 const router = Router();
 router.use(requireAuth);
@@ -156,11 +159,21 @@ router.post(
 );
 
 // ── POST /api/documents/job-sheet ──────────────────────────────────────────────
+// engineerId (preferred) ties the sheet to a real, currently-assigned
+// Engineer row and filters the Hours Logged table to that engineer's own
+// entries. engineerName is a legacy free-text override — kept for
+// backwards compatibility, but it has no FK and never filters hours.
 
 router.post(
   '/job-sheet',
   requirePermission('documents:create'),
-  [body('jobId').isUUID(), body('engineerName').optional().isString().trim()],
+  [
+    body('jobId').isUUID(),
+    body('engineerId').optional().isUUID(),
+    body('engineerName').optional().isString().trim(),
+    body('includeHours').optional().isBoolean().toBoolean(),
+    body('includeRates').optional().isBoolean().toBoolean(),
+  ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -168,8 +181,13 @@ router.post(
         where: { id: req.body.jobId, deletedAt: null },
         include: {
           property: true,
-          assignedContractors: true,
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
           quoteLineItems: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
+          workLogs: {
+            where: { deletedAt: null },
+            include: { contractor: { select: { id: true, name: true } } },
+            orderBy: { workDate: 'asc' },
+          },
         },
       });
 
@@ -182,51 +200,35 @@ router.post(
       if (!JOB_SHEET_ALLOWED_STATUSES.includes(job.status)) {
         res.status(400).json({
           error: 'Bad Request',
-          message: 'Job Sheet can only be generated once the job reaches QUOTED stage.',
+          message: 'Job Sheet can only be generated once the job reaches AUTHORISED stage.',
         });
+        return;
+      }
+
+      const resolution = resolveJobSheetContractor(job.assignedContractors, {
+        engineerId: req.body.engineerId,
+        engineerName: req.body.engineerName,
+      });
+      if ('error' in resolution) {
+        res.status(422).json({ error: 'Unprocessable Entity', message: resolution.error });
         return;
       }
 
       // Fetch diagnostic images as base64
       const diagnosticImages = await getBase64Images(job.id, 'DIAGNOSTIC');
 
-      // Format scheduled date and time separately
-      let scheduledDate = 'TBD';
-      let scheduledTime = 'TBD';
-      if (job.scheduledDate) {
-        scheduledDate = job.scheduledDate.toLocaleDateString('en-GB', {
-          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-        });
-        scheduledTime = job.scheduledDate.toLocaleTimeString('en-GB', {
-          hour: '2-digit', minute: '2-digit',
-        });
-      }
+      const includeHours = req.body.includeHours !== false;
+      // Rates are margin-sensitive — opt-in, and gated server-side regardless
+      // of what the request body asks for.
+      const includeRates = req.body.includeRates === true && req.user!.can('engineer_costs:view');
 
-      // Use provided engineerName override or fall back to assigned engineers
-      const contractorName = req.body.engineerName
-        || (job.assignedContractors && job.assignedContractors.length > 0
-          ? job.assignedContractors.map((c: any) => c.name).join(', ')
-          : 'Unassigned');
-
-      const snapshotData = {
-        jobNumber: formatJobNumber(job.sequence),
-        scheduledDate,
-        scheduledTime,
-        status: 'AUTHORISED',
-        contractorName,
-        propertyAddress: job.property ? formatPropertyAddress(job.property) : 'No Property Assigned',
-        tenantName: job.tenantSnapshotName || 'N/A',
-        tenantPhone: job.tenantSnapshotPhone || '',
-        accessNotes: job.property?.accessNotes || '',
-        materials: job.materials || 'N/A',
-        description: job.description || 'No description provided.',
-        diagnosticNotes: job.diagnosticNotes || '',
-        lineItems: job.quoteLineItems.map((item: any) => ({
-          description: item.description,
-          price: Number(item.price).toFixed(2),
-        })),
+      const snapshotData = buildJobSheetSnapshot(job, {
+        contractorName: resolution.contractorName,
+        matchedEngineerId: resolution.matchedEngineerId,
+        includeHours,
+        includeRates,
         diagnosticImages,
-      };
+      });
 
       const pdfBuffer = await generatePdf('job_sheet', snapshotData);
       const storageKey = await uploadPdfToStorage(job.id, pdfBuffer, DocumentType.JOB_SHEET);
@@ -270,7 +272,7 @@ router.post(
         include: {
           property: true,
           client: true,
-          assignedContractors: true,
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
           quoteLineItems: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
           workLogs: {
             where: { deletedAt: null },
@@ -313,6 +315,16 @@ router.post(
         date: wl.workDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
         hours: `${Number(wl.hoursWorked)} Hour${Number(wl.hoursWorked) !== 1 ? 's' : ''}`,
       }));
+      const totalHours = includeWorkLogs
+        ? summariseWorkLogs(
+            job.workLogs.map((wl: any) => ({
+              contractorId: wl.contractorId,
+              hoursWorked: wl.hoursWorked,
+              rateApplied: 0,
+              materialCost: 0,
+            }))
+          ).totals.hours
+        : '0.00';
 
       // Build "completed by" string from contractors
       const completedBy = job.assignedContractors && job.assignedContractors.length > 0
@@ -340,6 +352,7 @@ router.post(
         })),
         includeWorkLogs,
         workLogs,
+        totalHours,
         includeDiagnosticImages,
         diagnosticImages,
         completionImages,
@@ -367,7 +380,10 @@ router.post(
 );
 
 // ── PATCH /api/documents/:id ───────────────────────────────────────────────────
-// Edit a document's snapshot data and regenerate the PDF
+// Edits a document's snapshot data and regenerates the PDF as a NEW
+// GeneratedDocument row — the original row and its storageKey are left
+// untouched and still downloadable. A new version of a report is a new row,
+// never an overwrite in place (Rules.md).
 
 router.patch(
   '/:id',
@@ -390,37 +406,36 @@ router.patch(
       }
 
       const newSnapshotData = req.body.snapshotData;
-      
-      // We log the change
+      const templateName = templateNameForDocType(doc.type);
+
+      // Re-generate PDF with the edited snapshot
+      const pdfBuffer = await generatePdf(templateName, newSnapshotData);
+      const storageKey = await uploadPdfToStorage(doc.jobId, pdfBuffer, doc.type);
+
+      const newDoc = await prisma.generatedDocument.create({
+        data: {
+          jobId: doc.jobId,
+          type: doc.type,
+          storageKey,
+          snapshotData: newSnapshotData,
+          generatedById: req.user!.id,
+        },
+      });
+
       await prisma.auditLog.create({
         data: {
           jobId: doc.jobId,
-          action: AuditAction.UPDATE,
+          action: AuditAction.CREATE,
           performedById: req.user!.id,
           entityType: 'GeneratedDocument',
-          entityId: doc.id,
+          entityId: newDoc.id,
           before: doc.snapshotData as any,
           after: newSnapshotData,
         }
       });
 
-      const templateName = templateNameForDocType(doc.type);
-
-      // Re-generate PDF with the updated snapshot
-      const pdfBuffer = await generatePdf(templateName, newSnapshotData);
-      
-      // Re-upload (we can reuse the same storageKey to overwrite, or create a new one. Overwrite is easier)
-      const storageKey = await uploadPdfToStorage(doc.jobId, pdfBuffer, doc.type);
-
-      const updatedDoc = await prisma.generatedDocument.update({
-        where: { id: doc.id },
-        data: {
-          snapshotData: newSnapshotData,
-          storageKey, // in case it changed
-        }
-      });
-
-      res.json(updatedDoc);
+      emitToJob(doc.jobId, 'document:created', { jobId: doc.jobId, ts: new Date().toISOString() });
+      res.json(newDoc);
     } catch (err) {
       next(err);
     }

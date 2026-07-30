@@ -57,6 +57,11 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // Set when the job changes on the server (e.g. an engineer gets
+  // auto-assigned from a new work log) while this form is open — surfaced as
+  // a banner rather than silently discarded, since saving over it would
+  // otherwise re-send the stale assignedContractors list and drop the change.
+  const [remoteChangePending, setRemoteChangePending] = useState(false);
 
   const [description, setDescription] = useState(job.description || '');
   const [materials, setMaterials] = useState(job.materials || '');
@@ -139,11 +144,22 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
   }, [socket, job.id, user?.id, isEditing]);
 
   useEffect(() => {
-    if (isEditing) return;
+    if (isEditing) {
+      if (!jobFormFieldsEqual(jobFormSnapshot.current, job)) {
+        setRemoteChangePending(true);
+      }
+      return;
+    }
     if (jobFormFieldsEqual(jobFormSnapshot.current, job)) return;
     jobFormSnapshot.current = job;
     resetFormFromJob(job);
   }, [job, isEditing, resetFormFromJob]);
+
+  const handleReloadFromServer = () => {
+    jobFormSnapshot.current = job;
+    resetFormFromJob(job);
+    setRemoteChangePending(false);
+  };
 
   useEffect(() => {
     if (isEditing) {
@@ -179,12 +195,14 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
   const openEdit = () => {
     resetFormFromJob(job);
     setIsEditing(true);
+    setRemoteChangePending(false);
   };
 
   const handleCancel = () => {
     resetFormFromJob(job);
     loadLineItems();
     setIsEditing(false);
+    setRemoteChangePending(false);
     setError('');
   };
 
@@ -244,6 +262,7 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
       }
 
       setIsEditing(false);
+      setRemoteChangePending(false);
       setDeletedLineItemIds([]);
       await loadLineItems();
       onUpdated();
@@ -352,6 +371,13 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
       </div>
 
       {error && <div className="page-error">{error}</div>}
+
+      {remoteChangePending && (
+        <div className="flex justify-between items-center" style={{ padding: '0.75rem', backgroundColor: 'var(--status-quoted-bg)', color: 'var(--status-quoted-text)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--status-quoted-border)', marginBottom: 'var(--space-md)', fontSize: '0.85rem' }}>
+          <span>Someone else updated this job while you were editing — saving now could overwrite their change.</span>
+          <button type="button" onClick={handleReloadFromServer} className="button secondary small" disabled={isSubmitting}>Reload</button>
+        </div>
+      )}
 
       <div className="form-row">
         <label className="form-label">Job Date & Time</label>

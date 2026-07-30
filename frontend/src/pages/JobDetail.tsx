@@ -391,7 +391,7 @@ export function JobDetail() {
       <JobEditDetails job={job} onUpdated={() => loadJob({ background: true })} />
 
       <JobPnL jobId={job.id} />
-      <JobWorkLogs jobId={job.id} />
+      <JobWorkLogs jobId={job.id} onEngineerAssigned={() => loadJob({ background: true })} />
       <JobCommunications jobId={job.id} />
       <JobMediaUpload jobId={job.id} />
       <JobDocuments jobId={job.id} jobStatus={job.status} scheduledDate={job.scheduledDate} assignedContractors={job.assignedContractors} />

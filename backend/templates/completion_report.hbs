@@ -28,6 +28,7 @@
     .worklogs-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
     .worklogs-table th, .worklogs-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
     .worklogs-table th { background: #f3f4f6; color: #374151; font-weight: 600; }
+    .worklogs-table tfoot td { background: #f9fafb; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -103,6 +104,12 @@
         </tr>
         {{/each}}
       </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">Total</td>
+          <td style="text-align: right;">{{totalHours}} Hours</td>
+        </tr>
+      </tfoot>
     </table>
     {{/if}}
     {{/if}}

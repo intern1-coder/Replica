@@ -43,12 +43,35 @@ export function LogisticsGrid() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [isPanelVisible, setIsPanelVisible] = useState(false);
+  const [periodSummary, setPeriodSummary] = useState<{ totals: { hours: string; labourCost?: string; materialCost: string; logCount: number } } | null>(null);
 
   useEffect(() => {
     apiFetch('/engineers')
       .then(res => setContractors(res))
       .catch(console.error);
   }, []);
+
+  // Period total for the selected contractor + date range — the server-side
+  // aggregate, not a sum over whatever page of logs happens to be loaded.
+  useEffect(() => {
+    if (!contractorId) {
+      setPeriodSummary(null);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams();
+    params.append('contractorId', contractorId);
+    if (startDate) params.append('startDate', new Date(startDate).toISOString());
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setUTCHours(23, 59, 59, 999);
+      params.append('endDate', end.toISOString());
+    }
+    apiFetch(`/work-logs/summary?${params.toString()}`)
+      .then((res) => { if (!cancelled) setPeriodSummary(res); })
+      .catch(() => { if (!cancelled) setPeriodSummary(null); });
+    return () => { cancelled = true; };
+  }, [contractorId, startDate, endDate]);
 
   useEffect(() => {
     loadLogs();
@@ -201,8 +224,18 @@ export function LogisticsGrid() {
         </div>
       </div>
 
+      {periodSummary && (
+        <div className="section-card flex items-center gap-4" style={{ marginBottom: 'var(--space-xl)', fontSize: '0.9rem' }}>
+          <strong>Period total ({contractors.find(c => c.id === contractorId)?.name}):</strong>
+          <span>{Number(periodSummary.totals.hours).toFixed(2)} hrs</span>
+          {periodSummary.totals.labourCost !== undefined && <span>£{Number(periodSummary.totals.labourCost).toFixed(2)} labour</span>}
+          <span>£{Number(periodSummary.totals.materialCost).toFixed(2)} materials</span>
+          <span className="text-secondary">{periodSummary.totals.logCount} logs</span>
+        </div>
+      )}
+
       {error && <div className="page-error">{error}</div>}
-      
+
       {isLoading ? <div className="text-secondary" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading schedule...</div> : (
         <motion.div 
           className="flex" 
@@ -346,9 +379,9 @@ export function LogisticsGrid() {
                     <h4 style={{ marginTop: 'var(--space-md)', marginBottom: 'var(--space-sm)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--space-md)' }}>Financials</h4>
                     <div className="form-grid-2">
                       <div><span className="text-muted" style={{fontSize:'0.8rem'}}>HOURS</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>{Number(selectedLog.hoursWorked).toFixed(2)}</span></div>
-                      <div><span className="text-muted" style={{fontSize:'0.8rem'}}>RATE</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>${Number(selectedLog.rateApplied).toFixed(2)}</span></div>
-                      <div><span className="text-muted" style={{fontSize:'0.8rem'}}>MATERIAL</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>${Number(selectedLog.materialCost || 0).toFixed(2)}</span></div>
-                      <div><span className="text-muted" style={{fontSize:'0.8rem'}}>TOTAL</span><br/><span style={{fontSize:'1.1rem', fontWeight:500, color:'var(--color-brand)'}}>${(Number(selectedLog.hoursWorked) * Number(selectedLog.rateApplied) + Number(selectedLog.materialCost || 0)).toFixed(2)}</span></div>
+                      <div><span className="text-muted" style={{fontSize:'0.8rem'}}>RATE</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>£{Number(selectedLog.rateApplied).toFixed(2)}</span></div>
+                      <div><span className="text-muted" style={{fontSize:'0.8rem'}}>MATERIALS</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>£{Number(selectedLog.materialCost || 0).toFixed(2)}</span></div>
+                      <div><span className="text-muted" style={{fontSize:'0.8rem'}}>TOTAL COST</span><br/><span style={{fontSize:'1.1rem', fontWeight:500, color:'var(--color-brand)'}}>£{(Number(selectedLog.hoursWorked) * Number(selectedLog.rateApplied) + Number(selectedLog.materialCost || 0)).toFixed(2)}</span></div>
                     </div>
                   </div>
 

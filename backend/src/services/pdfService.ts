@@ -174,12 +174,20 @@ export async function generatePdf(templateName: string, data: any): Promise<Buff
       await context.close().catch(() => {});
     }
   } catch (err) {
-    logger.error('Chromium failed to launch or generate PDF (run `npx playwright install chromium` if missing). Generating dummy fallback PDF.', {
+    logger.error('Chromium failed to launch or generate PDF (run `npx playwright install chromium` if missing).', {
       error: err instanceof Error ? err.message : String(err),
     });
-    return Buffer.from(
-      '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n4 0 obj\n<< /Length 53 >>\nstream\nBT\n/F1 24 Tf\n100 700 Td\n(Mock PDF Generated) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000289 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n393\n%%EOF\n'
-    );
+    // A render failure must never silently succeed with a blank placeholder —
+    // documents.ts creates the GeneratedDocument row only after this resolves,
+    // so throwing here means no document, no upload, and a clean 500 instead
+    // of a "success" toast over an empty PDF. The dummy buffer exists only so
+    // a Chromium-less dev box doesn't block on it; never enabled outside tests.
+    if (config.puppeteer.allowMockFallback) {
+      return Buffer.from(
+        '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n4 0 obj\n<< /Length 53 >>\nstream\nBT\n/F1 24 Tf\n100 700 Td\n(Mock PDF Generated) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000289 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n393\n%%EOF\n'
+      );
+    }
+    throw err;
   } finally {
     activePdfJobs--;
   }

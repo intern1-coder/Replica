@@ -9,6 +9,7 @@ import { getPaginationParams, paginate, formatJobNumber } from '../lib/utils';
 import { logAudit } from '../services/auditService';
 import logger from '../lib/logger';
 import { emitToAll, emitToJob } from '../lib/socket';
+import { ACTIVE_ASSIGNED_CONTRACTORS } from '../lib/prismaSelects';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,7 +29,7 @@ const JOB_LIST_SELECT = {
   tenantSnapshotName: true,
   tenantSnapshotPhone: true,
   quotedValue: true,
-  assignedContractors: { select: { id: true, name: true } },
+  assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
   scheduledDate: true,
   completedAt: true,
   createdAt: true,
@@ -170,7 +171,7 @@ router.get(
           property: { select: { id: true, address: true, accessNotes: true, keyLocation: true } },
           client: { select: { id: true, name: true, email: true, phone: true } },
           tenant: { select: { id: true, name: true, phone: true, email: true } },
-          assignedContractors: { select: { id: true, name: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
           generatedDocuments: { orderBy: { createdAt: 'desc' } },
         },
       });
@@ -291,7 +292,7 @@ router.post(
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
           tenant: { select: { id: true, name: true, phone: true } },
-          assignedContractors: { select: { id: true, name: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
         },
       });
 
@@ -348,7 +349,7 @@ router.patch(
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
-          assignedContractors: { select: { id: true, name: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
         },
       });
 
@@ -379,6 +380,50 @@ router.patch(
         tenantSnapshotPhone?: string | null;
       };
 
+      // assignedContractorIds is diffed (connect/disconnect) rather than
+      // {set:} so concurrent edits from two sessions are additive, not
+      // last-write-wins. Unassigning an engineer who has hours on this job
+      // is blocked — the assignment list and the hours must never drift apart.
+      let assignedContractorsUpdate: { connect: { id: string }[]; disconnect: { id: string }[] } | undefined;
+
+      if (assignedContractorIds) {
+        const nextIds = [...new Set(assignedContractorIds)];
+        const existingIds = existing.assignedContractors.map((c) => c.id);
+        const added = nextIds.filter((id) => !existingIds.includes(id));
+        const removed = existingIds.filter((id) => !nextIds.includes(id));
+
+        if (removed.length > 0) {
+          const blocked = await prisma.workLog.groupBy({
+            by: ['contractorId'],
+            where: { jobId: existing.id, deletedAt: null, contractorId: { in: removed } },
+          });
+          if (blocked.length > 0) {
+            const blockedIds = new Set(blocked.map((b) => b.contractorId));
+            const blockedNames = existing.assignedContractors
+              .filter((c) => blockedIds.has(c.id))
+              .map((c) => c.name);
+            res.status(422).json({
+              error: 'Unprocessable Entity',
+              message: `Cannot unassign ${blockedNames.join(', ')} — they have logged hours on this job.`,
+            });
+            return;
+          }
+        }
+
+        if (added.length > 0) {
+          const liveCount = await prisma.engineer.count({ where: { id: { in: added }, deletedAt: null } });
+          if (liveCount !== added.length) {
+            res.status(422).json({ error: 'Unprocessable Entity', message: 'One or more selected engineers could not be found.' });
+            return;
+          }
+        }
+
+        assignedContractorsUpdate = {
+          connect: added.map((id) => ({ id })),
+          disconnect: removed.map((id) => ({ id })),
+        };
+      }
+
       const updated = await prisma.job.update({
         where: { id: req.params['id'] },
         data: {
@@ -387,7 +432,7 @@ router.patch(
           completionNotes,
           materials,
           quotedValue: quotedValue !== undefined ? quotedValue : undefined,
-          assignedContractors: assignedContractorIds ? { set: assignedContractorIds.map((id) => ({ id })) } : undefined,
+          assignedContractors: assignedContractorsUpdate,
           scheduledDate,
           tenantSnapshotName,
           tenantSnapshotPhone,
@@ -395,7 +440,7 @@ router.patch(
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
-          assignedContractors: { select: { id: true, name: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
         },
       });
 
@@ -478,7 +523,7 @@ router.patch(
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
-          assignedContractors: { select: { id: true, name: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
         },
       });
 

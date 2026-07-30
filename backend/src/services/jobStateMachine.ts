@@ -4,6 +4,7 @@ import logger from '../lib/logger';
 import { OptimisticLockError } from '../middleware/errorHandler';
 import { emitJobStatusChanged, emitReminderChanged, emitToUser } from '../lib/socket';
 import { getEffectivePermissions, sanitizeOverrides } from '../lib/permissions';
+import { ACTIVE_ASSIGNED_CONTRACTORS } from '../lib/prismaSelects';
 
 // ── Transition map ─────────────────────────────────────────────────────────────
 // Defines every legal state transition (AppFlow.md).
@@ -195,7 +196,7 @@ export async function applyTransition({
     include: {
       property:          { select: { id: true, address: true } },
       client:            { select: { id: true, name: true } },
-      assignedContractors: { select: { id: true, name: true } },
+      assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
     },
   });
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../utils/api';
-import { Edit, Trash2, Plus, X, Save } from 'lucide-react';
+import { Edit, Trash2, Plus, X, Save, Clock } from 'lucide-react';
+import { EngineerTimesheetModal } from '../components/EngineerTimesheetModal';
 
 // API shape — hourlyRate comes back as a Prisma Decimal (string) or number.
 interface Engineer {
@@ -31,6 +32,7 @@ export function Engineers() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [timesheetFor, setTimesheetFor] = useState<Engineer | null>(null);
 
   const load = async () => {
     try {
@@ -151,6 +153,9 @@ export function Engineers() {
                   </div>
                   <div className="list-cell-action" data-label="Actions">
                     <div className="flex gap-2">
+                      <button onClick={() => setTimesheetFor(eng)} className="button secondary small flex items-center gap-1">
+                        <Clock size={12} /> Timesheet
+                      </button>
                       <button onClick={() => openEdit(eng)} className="button secondary small flex items-center gap-1">
                         <Edit size={12} /> Edit
                       </button>
@@ -233,6 +238,10 @@ export function Engineers() {
             </div>
           </div>
         </div>
+      )}
+
+      {timesheetFor && (
+        <EngineerTimesheetModal engineer={timesheetFor} onClose={() => setTimesheetFor(null)} />
       )}
     </div>
   );

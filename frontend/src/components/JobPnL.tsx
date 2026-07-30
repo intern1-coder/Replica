@@ -8,11 +8,12 @@ interface PnLData {
   jobNumber: string;
   revenue: number;
   laborCost: number;
+  laborHours: number;
   materialCost: number;
   profit: number;
 }
 
-const PNL_KEYS: (keyof PnLData)[] = ['id', 'jobNumber', 'revenue', 'laborCost', 'materialCost', 'profit'];
+const PNL_KEYS: (keyof PnLData)[] = ['id', 'jobNumber', 'revenue', 'laborCost', 'laborHours', 'materialCost', 'profit'];
 
 export function JobPnL({ jobId }: { jobId: string }) {
   const [pnl, setPnl] = useState<PnLData | null>(null);
@@ -103,6 +104,10 @@ export function JobPnL({ jobId }: { jobId: string }) {
         <div className="section-card" style={{ marginBottom: 0 }}>
           <div className="text-secondary" style={{ fontSize: '0.8rem' }}>Labor Cost</div>
           <div className="tabular-nums font-medium" style={{ fontSize: '1.1rem' }}>£{Number(pnl.laborCost || 0).toFixed(2)}</div>
+        </div>
+        <div className="section-card" style={{ marginBottom: 0 }}>
+          <div className="text-secondary" style={{ fontSize: '0.8rem' }}>Total Hours</div>
+          <div className="tabular-nums font-medium" style={{ fontSize: '1.1rem' }}>{Number(pnl.laborHours || 0).toFixed(2)}</div>
         </div>
         <div className="section-card" style={{ marginBottom: 0 }}>
           <div className="text-secondary" style={{ fontSize: '0.8rem' }}>Profit</div>

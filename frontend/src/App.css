@@ -1387,7 +1387,7 @@
 .list-cols-jobs { grid-template-columns: 1fr 1.5fr 2fr 2fr 1.5fr 1fr; }
 .list-cols-clients { grid-template-columns: 2fr 2fr 1fr 1fr 1fr; }
 .list-cols-properties { grid-template-columns: 2fr 1.5fr 1.5fr 0.75fr; }
-.list-cols-engineers { grid-template-columns: 2fr 1.5fr 2fr 1fr 1fr; }
+.list-cols-engineers { grid-template-columns: 1.75fr 1.25fr 1.75fr 0.9fr 1.6fr; }
 .list-cols-team { grid-template-columns: 2fr 2fr 1fr 1fr 1.5fr; }
 
 /* Horizontal scroll wrapper for real tables */
