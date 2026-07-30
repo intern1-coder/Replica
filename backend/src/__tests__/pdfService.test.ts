@@ -90,4 +90,20 @@ describe('PDF Generation Service', () => {
     expect(Buffer.isBuffer(pdfBuffer)).toBe(true);
     expect(pdfBuffer.length).toBeGreaterThan(10);
   }, 10000);
+
+  it('Diagnostic Report template has bold main heading (item 13)', () => {
+    const templatesDir = path.join(__dirname, '../../templates');
+    const quote = fs.readFileSync(path.join(templatesDir, 'quote.hbs'), 'utf-8');
+
+    expect(quote).toMatch(/\.report-title\s*\{[^}]*font-weight:\s*700/);
+    expect(quote).toContain('<div class="report-title">Diagnostic Report</div>');
+  });
+
+  it('Completion Report template has bold main heading (item 13)', () => {
+    const templatesDir = path.join(__dirname, '../../templates');
+    const completion = fs.readFileSync(path.join(templatesDir, 'completion_report.hbs'), 'utf-8');
+
+    expect(completion).toMatch(/\.report-title\s*\{[^}]*font-weight:\s*700/);
+    expect(completion).toContain('<div class="report-title">Completion Report</div>');
+  });
 });
