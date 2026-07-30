@@ -53,6 +53,8 @@ function formatSnapshotTime(time: string): string {
 }
 
 export function DocumentEditModal({ documentId, documentType, initialSnapshot, onClose, onSaved }: DocumentEditModalProps) {
+  const isJobSheet = documentType === 'JOB_SHEET';
+
   const [snapshot, setSnapshot] = useState<any>(() => {
     const clean = { ...initialSnapshot };
     // Images are base64 blobs — strip them from editable state to keep the form
@@ -69,6 +71,9 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
     delete clean.includeRates;
     delete clean.engineerId;
     delete clean.hoursColSpan;
+    // The Job Sheet always states the job was AUTHORISED — it documents that
+    // fact, not the job's current pipeline stage — so it is never editable.
+    if (isJobSheet) clean.status = 'AUTHORISED';
     return clean;
   });
 
@@ -88,6 +93,7 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
         payload.scheduledDate = dateInput ? formatSnapshotDate(dateInput) : 'TBD';
         payload.scheduledTime = timeInput ? formatSnapshotTime(timeInput) : 'TBD';
       }
+      if (isJobSheet) payload.status = 'AUTHORISED';
 
       if (initialSnapshot.diagnosticImages) payload.diagnosticImages = initialSnapshot.diagnosticImages;
       if (initialSnapshot.completionImages) payload.completionImages = initialSnapshot.completionImages;
@@ -124,6 +130,9 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
   };
 
   const renderInput = (key: string, value: any, onChange: (val: string) => void) => {
+    if (key === 'status' && isJobSheet) {
+      return <input type="text" value="AUTHORISED" readOnly style={{ width: '100%', padding: '0.4rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }} />;
+    }
     if (key === 'scheduledDate') {
       return (
         <input

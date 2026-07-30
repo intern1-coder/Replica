@@ -355,6 +355,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
           <thead>
             <tr>
               <th>Type</th>
+              <th>For</th>
               <th>Date</th>
               <th>Action</th>
             </tr>
@@ -363,6 +364,9 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
             {docs.map((doc) => (
               <tr key={doc.id}>
                 <td className="font-medium">{doc.type.replace(/_/g, ' ')}</td>
+                <td className="text-secondary">
+                  {doc.type === 'JOB_SHEET' ? (doc.snapshotData?.contractorName || '—') : '—'}
+                </td>
                 <td className="tabular-nums">{new Date(doc.createdAt).toLocaleString()}</td>
                 <td>
                   <div className="flex gap-2">
@@ -388,7 +392,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
             ))}
             {docs.length === 0 && (
               <tr>
-                <td colSpan={3} className="empty-state text-center" style={{ border: 'none' }}>No documents generated yet.</td>
+                <td colSpan={4} className="empty-state text-center" style={{ border: 'none' }}>No documents generated yet.</td>
               </tr>
             )}
           </tbody>

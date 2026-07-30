@@ -56,13 +56,18 @@ router.get(
     query('search').optional().isString().trim(),
     query('startDate').optional().isISO8601().toDate(),
     query('endDate').optional().isISO8601().toDate(),
+    // Filters on Job.scheduledDate (the booked work date) — distinct from
+    // startDate/endDate above, which filter createdAt. Used by the Logistics
+    // tab's "Upcoming" view to find jobs booked in a future window.
+    query('scheduledFrom').optional().isISO8601().toDate(),
+    query('scheduledTo').optional().isISO8601().toDate(),
     query('page').optional().isInt({ min: 1 }).toInt(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { tab, status, clientId, propertyId, assignedContractorId, search, startDate, endDate } = req.query as {
+      const { tab, status, clientId, propertyId, assignedContractorId, search, startDate, endDate, scheduledFrom, scheduledTo } = req.query as {
         tab?: 'active' | 'completed' | 'cancelled' | 'archived';
         status?: JobStatus;
         clientId?: string;
@@ -71,6 +76,8 @@ router.get(
         search?: string;
         startDate?: Date;
         endDate?: Date;
+        scheduledFrom?: Date;
+        scheduledTo?: Date;
       };
 
       const { page, limit, skip } = getPaginationParams(
@@ -136,6 +143,16 @@ router.get(
           const end = new Date(endDate);
           end.setHours(23, 59, 59, 999);
           where.createdAt.lte = end;
+        }
+      }
+
+      if (scheduledFrom || scheduledTo) {
+        where.scheduledDate = { not: null };
+        if (scheduledFrom) where.scheduledDate.gte = scheduledFrom;
+        if (scheduledTo) {
+          const end = new Date(scheduledTo);
+          end.setHours(23, 59, 59, 999);
+          where.scheduledDate.lte = end;
         }
       }
 

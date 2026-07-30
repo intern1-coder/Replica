@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { Calendar, Clock, MapPin, User, X, Briefcase, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,7 +10,7 @@ interface WorkLog {
   contractorId: string;
   workDate: string;
   hoursWorked: string | number;
-  rateApplied: string | number;
+  rateApplied?: string | number; // omitted server-side for callers without engineer_costs:view
   materialCost: string | number | null;
   notes: string | null;
   createdAt: string;
@@ -17,6 +18,17 @@ interface WorkLog {
   loggedBy?: { id: string; name: string };
   job?: { id: string; sequence: number; status: string; description: string | null; property: { address: string; accessNotes: string | null } };
 }
+
+interface UpcomingJob {
+  id: string;
+  sequence: number;
+  status: string;
+  scheduledDate: string;
+  property?: { address: string };
+  assignedContractors?: { id: string; name: string }[];
+}
+
+const UPCOMING_WINDOW_DAYS = 14;
 
 export function LogisticsGrid() {
   const [selectedLog, setSelectedLog] = useState<WorkLog | null>(null);
@@ -32,6 +44,9 @@ export function LogisticsGrid() {
   const [contractors, setContractors] = useState<{id: string, name: string}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [upcomingJobs, setUpcomingJobs] = useState<UpcomingJob[]>([]);
+  const [isLoadingUpcoming, setIsLoadingUpcoming] = useState(true);
 
   const today = new Date();
   const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -50,6 +65,28 @@ export function LogisticsGrid() {
       .then(res => setContractors(res))
       .catch(console.error);
   }, []);
+
+  // Upcoming: jobs actually booked (Job.scheduledDate) in the next
+  // UPCOMING_WINDOW_DAYS — independent of the logged-hours date range below,
+  // since a future booking has no work logs yet. Respects the contractor filter.
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingUpcoming(true);
+    const now = new Date();
+    const windowEnd = new Date(now.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const params = new URLSearchParams();
+    params.append('tab', 'active');
+    params.append('scheduledFrom', now.toISOString());
+    params.append('scheduledTo', windowEnd.toISOString());
+    params.append('limit', '100');
+    if (contractorId) params.append('assignedContractorId', contractorId);
+
+    apiFetch(`/jobs?${params.toString()}`)
+      .then((res) => { if (!cancelled) setUpcomingJobs(res.data || []); })
+      .catch(() => { if (!cancelled) setUpcomingJobs([]); })
+      .finally(() => { if (!cancelled) setIsLoadingUpcoming(false); });
+    return () => { cancelled = true; };
+  }, [contractorId]);
 
   // Period total for the selected contractor + date range — the server-side
   // aggregate, not a sum over whatever page of logs happens to be loaded.
@@ -139,6 +176,7 @@ export function LogisticsGrid() {
 
   const loadLogs = async () => {
     setIsLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', new Date(startDate).toISOString());
@@ -162,20 +200,43 @@ export function LogisticsGrid() {
     }
   };
 
+  // Grouped by the UTC calendar date of workDate (a date-only column, stored
+  // as UTC midnight) — matching JobWorkLogs.tsx's grouping — so a log doesn't
+  // land under a different day here than it does on the job page for anyone
+  // on a machine behind UTC.
   const groupedLogs = useMemo(() => {
     const groups: Record<string, Record<string, WorkLog[]>> = {};
     const sorted = [...logs].sort((a, b) => new Date(b.workDate).getTime() - new Date(a.workDate).getTime());
-    
+
     sorted.forEach(log => {
-      const dateStr = new Date(log.workDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      const dateKey = new Date(log.workDate).toISOString().split('T')[0];
       const contractorName = log.contractor?.name || 'Unassigned';
-      
-      if (!groups[dateStr]) groups[dateStr] = {};
-      if (!groups[dateStr][contractorName]) groups[dateStr][contractorName] = [];
-      groups[dateStr][contractorName].push(log);
+
+      if (!groups[dateKey]) groups[dateKey] = {};
+      if (!groups[dateKey][contractorName]) groups[dateKey][contractorName] = [];
+      groups[dateKey][contractorName].push(log);
     });
     return groups;
   }, [logs]);
+
+  // scheduledDate carries a real time-of-day (set via the date+time picker in
+  // Job Details), so — unlike workDate above — it's grouped by LOCAL calendar
+  // day: an appointment at 9pm local is still "today" to the person viewing it,
+  // even if that instant has already crossed into tomorrow in UTC.
+  const groupedUpcoming = useMemo(() => {
+    const groups: Record<string, UpcomingJob[]> = {};
+    const sorted = [...upcomingJobs].sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime());
+    sorted.forEach((job) => {
+      const d = new Date(job.scheduledDate);
+      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(job);
+    });
+    return groups;
+  }, [upcomingJobs]);
+
+  const formatDateKey = (dateKey: string) =>
+    new Date(`${dateKey}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
   const containerVariants: any = {
     hidden: { opacity: 0 },
@@ -198,7 +259,7 @@ export function LogisticsGrid() {
             <Calendar size={28} className="text-brand" style={{ color: 'var(--color-brand)' }} /> 
             Logistics Grid
           </h1>
-          <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>Schedule and tracking for contractors.</p>
+          <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>Upcoming jobs and logged contractor hours.</p>
         </div>
       </div>
       
@@ -224,6 +285,60 @@ export function LogisticsGrid() {
         </div>
       </div>
 
+      <div style={{ marginBottom: 'var(--space-xl)' }}>
+        <h3 className="flex items-center gap-2" style={{ marginBottom: 'var(--space-md)' }}>
+          <Calendar size={20} className="text-brand" /> Upcoming (next {UPCOMING_WINDOW_DAYS} days)
+        </h3>
+        {isLoadingUpcoming ? (
+          <div className="text-secondary" style={{ padding: 'var(--space-md)' }}>Loading upcoming jobs...</div>
+        ) : Object.keys(groupedUpcoming).length === 0 ? (
+          <div className="empty-state" style={{ padding: 'var(--space-md)' }}>
+            <p className="text-secondary" style={{ margin: 0 }}>No jobs scheduled in this window.</p>
+          </div>
+        ) : (
+          <div className="flex" style={{ flexDirection: 'column', gap: 'var(--space-md)' }}>
+            {Object.entries(groupedUpcoming).map(([dateKey, jobsForDay]) => (
+              <div key={dateKey}>
+                <div className="text-secondary" style={{ fontSize: '0.9rem', fontWeight: 500, marginBottom: '0.5rem' }}>
+                  {formatDateKey(dateKey)}
+                </div>
+                <div className="flex gap-3" style={{ flexWrap: 'wrap' }}>
+                  {jobsForDay.map((job) => (
+                    <Link
+                      key={job.id}
+                      to={`/jobs/${job.id}`}
+                      className="section-card card-hover"
+                      style={{ marginBottom: 0, padding: 'var(--space-md)', minWidth: '220px', textDecoration: 'none', color: 'inherit' }}
+                    >
+                      <div className="flex justify-between items-start" style={{ marginBottom: '0.5rem' }}>
+                        <strong style={{ fontSize: '1rem' }}>Job #{job.sequence}</strong>
+                        <span className={`status-badge ${job.status.toLowerCase()}`}>{job.status.replace(/_/g, ' ')}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-secondary" style={{ fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+                        <Clock size={14} /> {new Date(job.scheduledDate).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div className="flex items-start gap-2 text-secondary" style={{ fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+                        <MapPin size={14} style={{ marginTop: '1px', flexShrink: 0 }} /> <span>{job.property?.address || 'No property'}</span>
+                      </div>
+                      <div className="flex items-center gap-2" style={{ fontSize: '0.85rem' }}>
+                        <User size={14} className="text-muted" />
+                        {job.assignedContractors && job.assignedContractors.length > 0
+                          ? job.assignedContractors.map((c) => c.name).join(', ')
+                          : <span className="text-muted">Unassigned</span>}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <h3 className="flex items-center gap-2" style={{ marginBottom: 'var(--space-md)' }}>
+        <FileText size={20} className="text-brand" /> Logged Hours
+      </h3>
+
       {periodSummary && (
         <div className="section-card flex items-center gap-4" style={{ marginBottom: 'var(--space-xl)', fontSize: '0.9rem' }}>
           <strong>Period total ({contractors.find(c => c.id === contractorId)?.name}):</strong>
@@ -244,10 +359,10 @@ export function LogisticsGrid() {
           initial="hidden"
           animate="show"
         >
-          {Object.entries(groupedLogs).map(([dateStr, contractorGroups]) => (
-            <motion.div key={dateStr} variants={itemVariants}>
+          {Object.entries(groupedLogs).map(([dateKey, contractorGroups]) => (
+            <motion.div key={dateKey} variants={itemVariants}>
               <h3 className="flex items-center gap-2" style={{ borderBottom: '2px solid var(--color-border)', paddingBottom: 'var(--space-sm)', marginBottom: 'var(--space-md)', color: 'var(--color-brand)' }}>
-                <Calendar size={20} /> {dateStr}
+                <Calendar size={20} /> {formatDateKey(dateKey)}
               </h3>
               
               <div className="flex" style={{ flexDirection: 'column', gap: 'var(--space-md)' }}>
@@ -286,7 +401,7 @@ export function LogisticsGrid() {
                             <span>{log.job?.property?.address}</span>
                           </div>
                           <div className="flex items-center gap-2 font-medium" style={{ fontSize: '0.875rem', color: 'var(--color-brand)' }}>
-                            <Clock size={16} /> {Number(log.hoursWorked).toFixed(2)} hrs scheduled
+                            <Clock size={16} /> {Number(log.hoursWorked).toFixed(2)} hrs logged
                           </div>
                         </motion.div>
                       ))}
@@ -379,9 +494,13 @@ export function LogisticsGrid() {
                     <h4 style={{ marginTop: 'var(--space-md)', marginBottom: 'var(--space-sm)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--space-md)' }}>Financials</h4>
                     <div className="form-grid-2">
                       <div><span className="text-muted" style={{fontSize:'0.8rem'}}>HOURS</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>{Number(selectedLog.hoursWorked).toFixed(2)}</span></div>
-                      <div><span className="text-muted" style={{fontSize:'0.8rem'}}>RATE</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>£{Number(selectedLog.rateApplied).toFixed(2)}</span></div>
+                      {selectedLog.rateApplied !== undefined && (
+                        <div><span className="text-muted" style={{fontSize:'0.8rem'}}>RATE</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>£{Number(selectedLog.rateApplied).toFixed(2)}</span></div>
+                      )}
                       <div><span className="text-muted" style={{fontSize:'0.8rem'}}>MATERIALS</span><br/><span style={{fontSize:'1.1rem', fontWeight:500}}>£{Number(selectedLog.materialCost || 0).toFixed(2)}</span></div>
-                      <div><span className="text-muted" style={{fontSize:'0.8rem'}}>TOTAL COST</span><br/><span style={{fontSize:'1.1rem', fontWeight:500, color:'var(--color-brand)'}}>£{(Number(selectedLog.hoursWorked) * Number(selectedLog.rateApplied) + Number(selectedLog.materialCost || 0)).toFixed(2)}</span></div>
+                      {selectedLog.rateApplied !== undefined && (
+                        <div><span className="text-muted" style={{fontSize:'0.8rem'}}>TOTAL COST</span><br/><span style={{fontSize:'1.1rem', fontWeight:500, color:'var(--color-brand)'}}>£{(Number(selectedLog.hoursWorked) * Number(selectedLog.rateApplied) + Number(selectedLog.materialCost || 0)).toFixed(2)}</span></div>
+                      )}
                     </div>
                   </div>
 

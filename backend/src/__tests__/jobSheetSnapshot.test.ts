@@ -91,7 +91,10 @@ describe('buildJobSheetSnapshot', () => {
     expect(snapshot.totalHours).toBe('9.50');
   });
 
-  it('uses the real job status, not a hardcoded AUTHORISED', () => {
+  it('always prints "AUTHORISED", regardless of the job\'s current status', () => {
+    // BASE_JOB.status is PENDING_INVOICE (the job has moved on since the
+    // sheet was first authorised) — the sheet still says AUTHORISED, since
+    // it documents that the work was authorised, not the job's live stage.
     const snapshot = buildJobSheetSnapshot(BASE_JOB, {
       contractorName: 'Bob Builder',
       matchedEngineerId: 'bob',
@@ -99,8 +102,7 @@ describe('buildJobSheetSnapshot', () => {
       includeRates: false,
       diagnosticImages: [],
     });
-    expect(snapshot.status).toBe('PENDING INVOICE');
-    expect(snapshot.status).not.toBe('AUTHORISED');
+    expect(snapshot.status).toBe('AUTHORISED');
   });
 
   it('omits rate/lineTotal/totalLabour entirely when includeRates is false — not just hidden client-side', () => {

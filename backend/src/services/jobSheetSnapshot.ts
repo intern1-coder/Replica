@@ -125,7 +125,12 @@ export function buildJobSheetSnapshot(job: JobSheetJobInput, opts: JobSheetSnaps
     jobNumber: formatJobNumber(job.sequence),
     scheduledDate,
     scheduledTime,
-    status: job.status.replace(/_/g, ' '),
+    // Always "AUTHORISED", regardless of job.status — the Job Sheet is the
+    // work-authorisation document handed to the engineer, so it prints the
+    // fact that this work was authorised, not the job's current pipeline
+    // stage (which may have since moved to PENDING_INVOICE or COMPLETED by
+    // the time the sheet is viewed/regenerated). Confirmed with user.
+    status: 'AUTHORISED',
     contractorName: opts.contractorName,
     propertyAddress: job.property ? formatPropertyAddress(job.property) : 'No Property Assigned',
     tenantName: job.tenantSnapshotName || 'N/A',
