@@ -57,8 +57,9 @@ List/detail GET routes across `tenants.ts`, `properties.ts`, `clients.ts`, `jobs
 ### H7. Real job PDFs, photos, and two audit-log files are committed in git history
 31 files under `backend/uploads/jobs/<uuid>/{documents,media}/` (completion reports, quotes, job sheets, site photos generated from real job/tenant data) plus two `backend/logs/*-audit.json` files are tracked in git, predating the `.gitignore` rules that now cover those paths for new files. Requires a history rewrite (`git filter-repo`), not just `git rm --cached`, and coordination since it changes commit hashes on every clone. **Not fixed in this pass** — flagging for a deliberate, scheduled cleanup rather than doing a history rewrite unprompted.
 
-### H8. Blue-green `deploy.sh` references unset variables under `set -u`
-Unlike `deploy-single.sh` (used for the current 1GB single-container setup and now fixed above), `scripts/deploy.sh` (for ≥2GB blue-green deploys) never sources `/app/backend/.env` before referencing `${GHCR_OWNER}` and `${DATABASE_URL}` — under `set -euo pipefail` this aborts before the first real step. Also, `${DATABASE_URL}` at the `pg_dump` line expands in the *host* shell rather than inside the container it execs into. **Not fixed in this pass** — not on the currently-used deploy path, but broken if the app is ever moved to a bigger instance and this script is used as-is.
+### H8. Blue-green `deploy.sh` references unset variables under `set -u` ✅ FIXED (2026-07-30)
+Unlike `deploy-single.sh` (used for the current 1GB single-container setup), `scripts/deploy.sh` (for ≥2GB blue-green deploys) never sourced `/app/backend/.env` before referencing `${GHCR_OWNER}` — under `set -euo pipefail` this aborted before the first real step. Also, `${DATABASE_URL}` at the `pg_dump` line expanded in the *host* shell rather than inside the container it execs into — the host `.env`'s `DATABASE_URL` points at `localhost`, which isn't reachable from inside the container's network namespace (the container's own env correctly points at the `db` service per `docker-compose.prod.yml`).
+**Fix applied**: script now `cd`s into `/app/backend` and sources `.env` (mirroring `deploy-single.sh`'s working directory, and letting `docker compose` auto-load `.env` for its own `${GHCR_OWNER}`/`${POSTGRES_*}` substitution in `docker-compose.prod.yml`) before any variable reference. The `pg_dump` line now runs `docker compose exec -T "app_${ACTIVE}" sh -c 'pg_dump "$DATABASE_URL"'` (single-quoted) so `$DATABASE_URL` expands inside the container's own shell using the container's own environment, not the host's. Verified with `bash -n`. Still not on the currently-used deploy path (single-container), but no longer broken if the app is moved to a bigger instance.
 
 ---
 
@@ -90,7 +91,6 @@ Unlike `deploy-single.sh` (used for the current 1GB single-container setup and n
 ---
 
 ## Suggested order for remaining work
-All CRITICAL items and H1–H6 are now fixed. What's left:
+All CRITICAL and HIGH items are now fixed except H7. What's left:
 1. **H7** — scheduled, deliberate git-history cleanup for the committed uploads/logs (coordinate — this changes commit hashes for everyone).
-2. **H8** — fix `deploy.sh` before ever moving off the current 1GB single-container setup.
-3. MEDIUM items, roughly in the listed order.
+2. MEDIUM items, roughly in the listed order.
