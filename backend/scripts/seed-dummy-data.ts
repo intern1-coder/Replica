@@ -3,6 +3,11 @@
  *
  * Usage:
  *   npm.cmd run seed:dummy
+ *
+ * Safe to re-run: clients/properties/tenants/engineers/jobs are all found-or-
+ * created by a stable key (email/address/name/description respectively), so
+ * running this again after adding new entries to the lists below only
+ * inserts what's missing instead of duplicating everything.
  */
 import { JobStatus, PrismaClient } from '@prisma/client';
 import { normalizeAddress } from '../src/lib/utils';
@@ -13,6 +18,7 @@ const CLIENTS = [
   { name: 'Harbour Estates Ltd', email: 'accounts@harbourestates.co.uk', phone: '0207 123 4567' },
   { name: 'Northgate Property Group', email: 'ops@northgatepg.co.uk', phone: '0208 555 0192' },
   { name: 'Affinity Lettings', email: 'maintenance@affinitylettings.co.uk', phone: '0203 148 4476' },
+  { name: 'Riverside Block Management', email: 'info@riversideblock.co.uk', phone: '0208 700 2211' },
 ];
 
 const PROPERTIES = [
@@ -21,12 +27,16 @@ const PROPERTIES = [
   { address: 'Flat 4, 88 Station Road, Pinner', postcode: 'HA5 4TH', accessNotes: 'Buzz flat 4', keyLocation: 'Under mat' },
   { address: '22 Meadow Close, Ruislip', postcode: 'HA4 7NB', accessNotes: 'Dog on premises — call first', keyLocation: 'Meter cupboard' },
   { address: '7 Church Lane, Northwood', postcode: 'HA6 1AB', accessNotes: 'Parking on street', keyLocation: 'Agent office' },
+  { address: 'Flat 9, Riverside Court, Wembley', postcode: 'HA9 6BX', accessNotes: 'Concierge 8am-8pm, intercom after', keyLocation: 'Concierge desk' },
+  { address: '3 Elmfield Road, Pinner', postcode: 'HA5 1LR', accessNotes: 'Side gate code 2024', keyLocation: 'Side gate keysafe' },
 ];
 
 const ENGINEERS = [
   { name: 'Gabi', email: 'gabi@affinityproperty.co.uk', phone: '07700 900101', hourlyRate: 45 },
   { name: 'Marco', email: 'marco@affinityproperty.co.uk', phone: '07700 900102', hourlyRate: 42 },
   { name: 'Priya', email: 'priya@affinityproperty.co.uk', phone: '07700 900103', hourlyRate: 48 },
+  { name: 'Dean', email: 'dean@affinityproperty.co.uk', phone: '07700 900104', hourlyRate: 40 },
+  { name: 'Sofia', email: 'sofia@affinityproperty.co.uk', phone: '07700 900105', hourlyRate: 50 },
 ];
 
 const TENANTS = [
@@ -34,9 +44,19 @@ const TENANTS = [
   { name: 'Sarah Khan', phone: '07722 333444', email: 's.khan@example.com' },
   { name: 'Tom & Lisa Wright', phone: '07733 444555' },
   { name: 'Aisha Patel', phone: '07744 555666', email: 'aisha.p@example.com' },
+  { name: 'David Chen', phone: '07755 666777', email: 'd.chen@example.com' },
+  { name: 'Fatima Osei', phone: '07766 777888' },
 ];
 
-const JOB_SPECS: Array<{
+interface WorkLogSpec {
+  engineerName: string;
+  hoursWorked: number;
+  /** How many days before "now" this log was worked. */
+  daysAgo: number;
+  notes?: string;
+}
+
+interface JobSpec {
   status: JobStatus;
   description: string;
   quotedValue?: number;
@@ -44,7 +64,15 @@ const JOB_SPECS: Array<{
   diagnosticNotes?: string;
   completionNotes?: string;
   lineItems?: Array<{ description: string; price: number }>;
-}> = [
+  /** Engineers assigned to the job, by name (must match an ENGINEERS entry). Defaults to a single rotating engineer if omitted. */
+  engineerNames?: string[];
+  /** Explicit work logs to create. Overrides the default single-log behaviour below. */
+  workLogs?: WorkLogSpec[];
+  /** If set, the job gets a future Job Date this many days out (for the Logistics "Upcoming" view). */
+  scheduledInDays?: number;
+}
+
+const JOB_SPECS: JobSpec[] = [
   {
     status: 'TO_BE_CHECKED',
     description: 'Reported leak under kitchen sink — tenant says slow drip overnight.',
@@ -72,6 +100,7 @@ const JOB_SPECS: Array<{
       { description: 'Smoke alarm units x2', price: 80 },
       { description: 'Labour and testing', price: 140 },
     ],
+    scheduledInDays: 2,
   },
   {
     status: 'PENDING_INVOICE',
@@ -104,6 +133,72 @@ const JOB_SPECS: Array<{
     status: 'CANCELLED',
     description: 'Tenant reported no heating — cancelled after tenant fixed thermostat.',
     diagnosticNotes: 'Tenant reset programmer before visit.',
+  },
+  // ── Multi-engineer scenario — mirrors the real Marco/Priya case this
+  // session's engineer-hours work was built and tested against. ──
+  {
+    status: 'AUTHORISED',
+    description: 'Full bathroom refit — strip out, replastering, new suite and tiling.',
+    quotedValue: 1450,
+    materials: 'Suite, tiles, adhesive, sealant — supplied by client',
+    lineItems: [
+      { description: 'Strip out and disposal', price: 220 },
+      { description: 'Replastering', price: 380 },
+      { description: 'Supply and fit new suite', price: 450 },
+      { description: 'Tiling and sealing', price: 400 },
+    ],
+    engineerNames: ['Marco', 'Priya'],
+    workLogs: [
+      { engineerName: 'Marco', hoursWorked: 6, daysAgo: 3, notes: 'Strip out and disposal, first fix plumbing.' },
+      { engineerName: 'Priya', hoursWorked: 8, daysAgo: 3, notes: 'Replastering — first coat.' },
+      { engineerName: 'Priya', hoursWorked: 5.5, daysAgo: 2, notes: 'Replastering — second coat and finish.' },
+      { engineerName: 'Marco', hoursWorked: 7, daysAgo: 1, notes: 'Suite fitted, tiling started.' },
+    ],
+  },
+  // ── Same engineer, multiple logs across different days — exercises the
+  // "add a second log without overwriting the first" flow directly. ──
+  {
+    status: 'PENDING_INVOICE',
+    description: 'Communal garden clearance and fence repair, three visits.',
+    quotedValue: 540,
+    completionNotes: 'All green waste removed, fence panels replaced, gate rehung.',
+    lineItems: [
+      { description: 'Garden clearance and green waste removal', price: 220 },
+      { description: 'Fence panel replacement x3', price: 240 },
+      { description: 'Gate repair', price: 80 },
+    ],
+    engineerNames: ['Dean'],
+    workLogs: [
+      { engineerName: 'Dean', hoursWorked: 4, daysAgo: 6, notes: 'Clearance and green waste — day 1.' },
+      { engineerName: 'Dean', hoursWorked: 5, daysAgo: 4, notes: 'Fence panels replaced — day 2.' },
+      { engineerName: 'Dean', hoursWorked: 2.5, daysAgo: 2, notes: 'Gate rehung, snagging — day 3.' },
+    ],
+  },
+  // ── Booked ahead, nothing logged yet — populates Logistics "Upcoming". ──
+  {
+    status: 'AUTHORISED',
+    description: 'PAT testing and electrical spot-checks across communal areas.',
+    quotedValue: 310,
+    lineItems: [
+      { description: 'PAT testing — communal appliances', price: 130 },
+      { description: 'Electrical spot-checks and certificate', price: 180 },
+    ],
+    engineerNames: ['Sofia'],
+    scheduledInDays: 5,
+  },
+  {
+    status: 'COMPLETED',
+    description: 'Replace consumer unit to current wiring regs.',
+    quotedValue: 620,
+    completionNotes: 'New 18th Edition consumer unit fitted and certified.',
+    lineItems: [
+      { description: 'Consumer unit and RCBOs', price: 260 },
+      { description: 'Labour, testing and certification', price: 360 },
+    ],
+    engineerNames: ['Sofia'],
+    workLogs: [
+      { engineerName: 'Sofia', hoursWorked: 7, daysAgo: 9, notes: 'Consumer unit replaced and tested.' },
+    ],
   },
 ];
 
@@ -143,6 +238,7 @@ async function main() {
 
   const clients = await Promise.all(CLIENTS.map(upsertClient));
   const engineers = await Promise.all(ENGINEERS.map(upsertEngineer));
+  const engineersByName = new Map(engineers.map((e) => [e.name, e]));
 
   const properties = [];
   for (const spec of PROPERTIES) {
@@ -192,77 +288,107 @@ async function main() {
     );
   }
 
-  const existingJobCount = await prisma.job.count({ where: { deletedAt: null } });
-  if (existingJobCount >= JOB_SPECS.length) {
-    console.log(`Skipping jobs — ${existingJobCount} job(s) already exist.`);
-  } else {
-    const now = Date.now();
-    let createdJobs = 0;
+  const now = Date.now();
+  let createdJobs = 0;
+  let skippedJobs = 0;
 
-    for (let i = 0; i < JOB_SPECS.length; i++) {
-      const spec = JOB_SPECS[i];
-      const property = properties[i % properties.length];
-      const client = clients[i % clients.length];
-      const tenant = tenants[i % tenants.length];
-      const engineer = engineers[i % engineers.length];
-      const daysAgo = i * 3;
-      const createdAt = new Date(now - daysAgo * 24 * 60 * 60 * 1000);
+  for (let i = 0; i < JOB_SPECS.length; i++) {
+    const spec = JOB_SPECS[i];
 
-      const job = await prisma.job.create({
-        data: {
-          propertyId: property.id,
-          clientId: client.id,
-          tenantId: tenant.id,
-          tenantSnapshotName: tenant.name,
-          tenantSnapshotPhone: tenant.phone,
-          status: spec.status,
-          description: spec.description,
-          diagnosticNotes: spec.diagnosticNotes,
-          completionNotes: spec.completionNotes,
-          materials: spec.materials,
-          quotedValue: spec.quotedValue,
-          createdAt,
-          scheduledDate:
-            spec.status === 'AUTHORISED'
-              ? new Date(now + 2 * 24 * 60 * 60 * 1000)
-              : undefined,
-          completedAt:
-            spec.status === 'COMPLETED' || spec.status === 'PENDING_INVOICE'
-              ? new Date(createdAt.getTime() + 2 * 24 * 60 * 60 * 1000)
-              : undefined,
-          assignedContractors: { connect: [{ id: engineer.id }] },
-        },
+    // Idempotent per-job: description text is unique across JOB_SPECS, so
+    // re-running the script after adding new specs only creates the new
+    // ones instead of re-inserting (and duplicating) everything.
+    const existingJob = await prisma.job.findFirst({
+      where: { description: spec.description, deletedAt: null },
+    });
+    if (existingJob) {
+      skippedJobs++;
+      continue;
+    }
+
+    const property = properties[i % properties.length];
+    const client = clients[i % clients.length];
+    const tenant = tenants[i % tenants.length];
+    const defaultEngineer = engineers[i % engineers.length];
+    const jobEngineers = spec.engineerNames
+      ? spec.engineerNames.map((name) => engineersByName.get(name)).filter((e): e is NonNullable<typeof e> => !!e)
+      : [defaultEngineer];
+
+    const daysAgo = i * 3;
+    const createdAt = new Date(now - daysAgo * 24 * 60 * 60 * 1000);
+
+    const job = await prisma.job.create({
+      data: {
+        propertyId: property.id,
+        clientId: client.id,
+        tenantId: tenant.id,
+        tenantSnapshotName: tenant.name,
+        tenantSnapshotPhone: tenant.phone,
+        status: spec.status,
+        description: spec.description,
+        diagnosticNotes: spec.diagnosticNotes,
+        completionNotes: spec.completionNotes,
+        materials: spec.materials,
+        quotedValue: spec.quotedValue,
+        createdAt,
+        scheduledDate: spec.scheduledInDays !== undefined
+          ? new Date(now + spec.scheduledInDays * 24 * 60 * 60 * 1000)
+          : spec.status === 'AUTHORISED'
+          ? new Date(now + 2 * 24 * 60 * 60 * 1000)
+          : undefined,
+        completedAt:
+          spec.status === 'COMPLETED' || spec.status === 'PENDING_INVOICE'
+            ? new Date(createdAt.getTime() + 2 * 24 * 60 * 60 * 1000)
+            : undefined,
+        assignedContractors: { connect: jobEngineers.map((e) => ({ id: e.id })) },
+      },
+    });
+
+    if (spec.lineItems?.length) {
+      await prisma.jobQuoteLineItem.createMany({
+        data: spec.lineItems.map((item) => ({
+          jobId: job.id,
+          description: item.description,
+          price: item.price,
+        })),
       });
+    }
 
-      if (spec.lineItems?.length) {
-        await prisma.jobQuoteLineItem.createMany({
-          data: spec.lineItems.map((item) => ({
-            jobId: job.id,
-            description: item.description,
-            price: item.price,
-          })),
-        });
-      }
-
-      if (['AUTHORISED', 'PENDING_INVOICE', 'COMPLETED'].includes(spec.status)) {
+    if (spec.workLogs?.length) {
+      for (const log of spec.workLogs) {
+        const engineer = engineersByName.get(log.engineerName);
+        if (!engineer) continue;
         await prisma.workLog.create({
           data: {
             jobId: job.id,
             contractorId: engineer.id,
             loggedById: loggedBy.id,
-            hoursWorked: 2.5,
+            hoursWorked: log.hoursWorked,
             rateApplied: engineer.hourlyRate ?? 45,
-            workDate: new Date(createdAt.getTime() + 24 * 60 * 60 * 1000),
-            notes: 'Initial visit — work carried out as quoted.',
+            workDate: new Date(now - log.daysAgo * 24 * 60 * 60 * 1000),
+            notes: log.notes,
           },
         });
       }
-
-      createdJobs++;
+    } else if (['AUTHORISED', 'PENDING_INVOICE', 'COMPLETED'].includes(spec.status)) {
+      // Default single-visit log for specs that don't define explicit workLogs.
+      await prisma.workLog.create({
+        data: {
+          jobId: job.id,
+          contractorId: defaultEngineer.id,
+          loggedById: loggedBy.id,
+          hoursWorked: 2.5,
+          rateApplied: defaultEngineer.hourlyRate ?? 45,
+          workDate: new Date(createdAt.getTime() + 24 * 60 * 60 * 1000),
+          notes: 'Initial visit — work carried out as quoted.',
+        },
+      });
     }
 
-    console.log(`Created ${createdJobs} jobs.`);
+    createdJobs++;
   }
+
+  console.log(`Created ${createdJobs} job(s), skipped ${skippedJobs} already-seeded job(s).`);
 
   console.log('Dummy data ready:');
   console.log(`  Clients:    ${clients.length}`);
