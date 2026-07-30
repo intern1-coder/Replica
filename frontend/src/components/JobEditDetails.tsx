@@ -227,6 +227,7 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
     setError('');
     try {
       const payload: Record<string, unknown> = {
+        version: job.version,
         description,
         materials,
         assignedContractorIds: selectedContractors.map((c) => c.value),
@@ -268,8 +269,19 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
       onUpdated();
       showToast('Job details saved', 'success');
     } catch (err: any) {
-      setError(err.message || 'Failed to update job');
-      showToast(err.message || 'Failed to update job', 'error');
+      if (err.status === 409) {
+        // The version this form was built from is stale — someone else saved
+        // a change in the meantime. Nothing here was saved. Surface the same
+        // "reload" banner used for the proactive staleness check, since by
+        // now the job prop has very likely already picked up their change
+        // via the job:updated socket event.
+        setRemoteChangePending(true);
+        setError('Someone else saved changes to this job while you were editing. Your changes were not saved — reload to see the latest version, then re-apply your edits.');
+        showToast('Save conflict — someone else updated this job first', 'error');
+      } else {
+        setError(err.message || 'Failed to update job');
+        showToast(err.message || 'Failed to update job', 'error');
+      }
     } finally {
       setIsSubmitting(false);
     }

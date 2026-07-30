@@ -9,6 +9,72 @@ import {
   type PermissionKey,
 } from '../lib/permissions';
 
+// ── resolveAuthenticatedUser ─────────────────────────────────────────────────────
+
+export interface ResolvedUser {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  canAuthorizeJobs: boolean;
+  permissions: Record<PermissionKey, boolean>;
+  can: (key: PermissionKey) => boolean;
+}
+
+export type ResolveAuthResult =
+  | { ok: true; user: ResolvedUser }
+  | { ok: false; reason: 'not_found' | 'stale_token' };
+
+/**
+ * Verifies a decoded JWT payload against the live User record — the shared
+ * core of requireAuth. Also used by Socket.io's handshake auth (lib/socket.ts)
+ * so a long-lived socket connection can never be more trusting than an HTTP
+ * request made with the same token: both reject a soft-deleted user and both
+ * reject a stale tokenVersion (bumped on password reset/change — the
+ * force-logout mechanism).
+ */
+export async function resolveAuthenticatedUser(payload: jwt.JwtPayload): Promise<ResolveAuthResult> {
+  const user = await prisma.user.findFirst({
+    where: { id: payload['userId'] as string, deletedAt: null },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      canAuthorizeJobs: true,
+      permissionOverrides: true,
+      tokenVersion: true,
+    },
+  });
+
+  if (!user) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  if ((payload['tokenVersion'] as number) !== user.tokenVersion) {
+    return { ok: false, reason: 'stale_token' };
+  }
+
+  const permissions = getEffectivePermissions(
+    user.role,
+    sanitizeOverrides(user.permissionOverrides),
+    user.canAuthorizeJobs
+  );
+
+  return {
+    ok: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      canAuthorizeJobs: user.canAuthorizeJobs,
+      permissions,
+      can: (key: PermissionKey) => !!permissions[key],
+    },
+  };
+}
+
 // ── requireAuth ────────────────────────────────────────────────────────────────
 
 /**
@@ -46,52 +112,19 @@ export async function requireAuth(
     return;
   }
 
-  // Re-check the user is still active — a token issued before a soft-delete
-  // must not be accepted after deactivation.
-  const user = await prisma.user.findFirst({
-    where: { id: payload['userId'] as string, deletedAt: null },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      canAuthorizeJobs: true,
-      permissionOverrides: true,
-      tokenVersion: true,
-    },
-  });
+  const resolved = await resolveAuthenticatedUser(payload);
 
-  if (!user) {
+  if (!resolved.ok) {
     res.status(401).json({
       error: 'Unauthorized',
-      message: 'User account not found or has been deactivated.',
+      message: resolved.reason === 'stale_token'
+        ? 'Session expired. Please log in again.'
+        : 'User account not found or has been deactivated.',
     });
     return;
   }
 
-  if ((payload['tokenVersion'] as number) !== user.tokenVersion) {
-    res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Session expired. Please log in again.',
-    });
-    return;
-  }
-
-  const permissions = getEffectivePermissions(
-    user.role,
-    sanitizeOverrides(user.permissionOverrides),
-    user.canAuthorizeJobs
-  );
-
-  req.user = {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    canAuthorizeJobs: user.canAuthorizeJobs,
-    permissions,
-    can: (key: PermissionKey) => !!permissions[key],
-  };
+  req.user = resolved.user;
   next();
 }
 

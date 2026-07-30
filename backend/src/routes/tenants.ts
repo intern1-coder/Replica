@@ -16,6 +16,7 @@ router.use(requireAuth);
 
 router.get(
   '/',
+  requirePermission('tenants:view'),
   [
     query('q').optional().isString().trim(),
     query('page').optional().isInt({ min: 1 }).toInt(),
@@ -54,6 +55,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermission('tenants:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -147,6 +149,7 @@ router.post(
 
 router.get(
   '/:id/related',
+  requirePermission('tenants:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

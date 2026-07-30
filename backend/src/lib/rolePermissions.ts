@@ -57,11 +57,25 @@ const ACCOUNTS: PermissionKey[] = [
   'jobs:complete',
 ];
 
-// CONTRACTOR: view-only of the open resources. Engineer names (not rates —
-// engineer_costs:view is withheld) are already visible via the `contractor`
-// field on work logs, so gating GET /api/engineers would only break the
-// work-log form's picker without hiding anything.
-const CONTRACTOR: PermissionKey[] = [...OPEN_VIEWS, 'engineers:view'];
+// CONTRACTOR: view-only of the resources needed to work an assigned job —
+// NOT the standalone client/property/tenant directories. Those routes let a
+// member browse every client/property/tenant in the system independent of
+// any job assignment; a job a contractor is actually assigned to still
+// carries its own property address, tenant name/phone, and access notes
+// embedded in the job response (jobs:view), so nothing needed to do the
+// work is lost. Engineer names (not rates — engineer_costs:view is
+// withheld) are already visible via the `contractor` field on work logs,
+// so gating GET /api/engineers would only break the work-log form's picker
+// without hiding anything.
+const CONTRACTOR: PermissionKey[] = [
+  'jobs:view',
+  'worklogs:view',
+  'communications:view',
+  'reminders:view',
+  'media:view',
+  'settings:view',
+  'engineers:view',
+];
 
 /** Presets for the non-admin roles. ADMIN/OWNER resolve to all permissions. */
 export const ROLE_PRESETS: Record<'PM' | 'ACCOUNTS' | 'CONTRACTOR', PermissionKey[]> = {

@@ -35,6 +35,7 @@ function stripRateFields<T extends { contractor?: any; rateApplied?: any }>(
 
 router.get(
   '/',
+  requirePermission('worklogs:view'),
   [
     query('jobId').optional().isUUID().withMessage('jobId must be a valid UUID.'),
     query('contractorId').optional().isUUID().withMessage('contractorId must be a valid UUID.'),
@@ -117,6 +118,7 @@ router.get(
 
 router.get(
   '/summary',
+  requirePermission('worklogs:view'),
   [
     query('jobId').optional().isUUID().withMessage('jobId must be a valid UUID.'),
     query('contractorId').optional().isUUID().withMessage('contractorId must be a valid UUID.'),
@@ -197,6 +199,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermission('worklogs:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

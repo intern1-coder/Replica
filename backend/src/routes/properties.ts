@@ -16,6 +16,7 @@ router.use(requireAuth);
 
 router.get(
   '/',
+  requirePermission('properties:view'),
   [
     query('q').optional().isString().trim(),
     query('clientId').optional().isUUID(),
@@ -68,6 +69,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermission('properties:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -258,6 +260,7 @@ router.patch(
 
 router.get(
   '/:id/related',
+  requirePermission('properties:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -351,6 +354,7 @@ router.delete(
 
 router.get(
   '/:id/tenant-history',
+  requirePermission('properties:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

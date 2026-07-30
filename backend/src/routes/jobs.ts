@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, param, query } from 'express-validator';
 import { JobStatus, Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
-import { validate } from '../middleware/errorHandler';
+import { validate, OptimisticLockError } from '../middleware/errorHandler';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { applyTransition, getAllowedTransitions } from '../services/jobStateMachine';
 import { getPaginationParams, paginate, formatJobNumber } from '../lib/utils';
@@ -47,6 +47,7 @@ function withJobNumber<T extends { sequence: number }>(job: T) {
 
 router.get(
   '/',
+  requirePermission('jobs:view'),
   [
     query('tab').optional().isIn(['active', 'completed', 'cancelled', 'archived']),
     query('status').optional().isIn(Object.values(JobStatus)),
@@ -178,6 +179,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermission('jobs:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -338,12 +340,18 @@ router.post(
 // Updates mutable fields on a job. Does NOT handle status changes — use
 // PATCH /api/jobs/:id/status for that (Rules.md: all status changes through state machine).
 // Frozen fields (tenantSnapshot*, status, version) cannot be changed here.
+//
+// Requires the caller's last-known `version` for optimistic locking, the same
+// pattern PATCH /:id/status already uses via jobStateMachine.ts — without
+// this, two PMs editing the same job's description/materials/quotedValue at
+// once silently overwrite each other with no warning (Rules.md).
 
 router.patch(
   '/:id',
   requirePermission('jobs:edit'),
   [
     param('id').isUUID(),
+    body('version').isInt({ min: 0 }).withMessage('version is required for optimistic locking.').toInt(),
     body('description').optional({ nullable: true }).isString().trim(),
     body('diagnosticNotes').optional({ nullable: true }).isString().trim(),
     body('completionNotes').optional({ nullable: true }).isString().trim(),
@@ -376,6 +384,7 @@ router.patch(
       }
 
       const {
+        version,
         description,
         diagnosticNotes,
         completionNotes,
@@ -386,6 +395,7 @@ router.patch(
         tenantSnapshotName,
         tenantSnapshotPhone,
       } = req.body as {
+        version: number;
         description?: string | null;
         diagnosticNotes?: string | null;
         completionNotes?: string | null;
@@ -441,24 +451,53 @@ router.patch(
         };
       }
 
-      const updated = await prisma.job.update({
-        where: { id: req.params['id'] },
-        data: {
-          description,
-          diagnosticNotes,
-          completionNotes,
-          materials,
-          quotedValue: quotedValue !== undefined ? quotedValue : undefined,
-          assignedContractors: assignedContractorsUpdate,
-          scheduledDate,
-          tenantSnapshotName,
-          tenantSnapshotPhone,
-        },
-        include: {
-          property: { select: { id: true, address: true } },
-          client: { select: { id: true, name: true } },
-          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
-        },
+      const jobId = req.params['id'];
+
+      // updateMany (not update) so the WHERE clause can include `version` —
+      // this is the atomic compare-and-swap: it only matches (and only then
+      // increments version) if the caller's version is still current. Relation
+      // writes (connect/disconnect) aren't supported on updateMany, so those
+      // apply as a second write inside the same transaction, gated on the
+      // first one having actually matched a row.
+      const updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.job.updateMany({
+          where: { id: jobId, version, deletedAt: null },
+          data: {
+            description,
+            diagnosticNotes,
+            completionNotes,
+            materials,
+            quotedValue: quotedValue !== undefined ? quotedValue : undefined,
+            scheduledDate,
+            tenantSnapshotName,
+            tenantSnapshotPhone,
+            version: { increment: 1 },
+          },
+        });
+
+        if (result.count === 0) {
+          const lockErr = Object.assign(new Error('Concurrent modification detected.'), {
+            type: 'OPTIMISTIC_LOCK_CONFLICT' as const,
+            id: jobId,
+          }) as OptimisticLockError;
+          throw lockErr;
+        }
+
+        if (assignedContractorsUpdate) {
+          await tx.job.update({
+            where: { id: jobId },
+            data: { assignedContractors: assignedContractorsUpdate },
+          });
+        }
+
+        return tx.job.findUniqueOrThrow({
+          where: { id: jobId },
+          include: {
+            property: { select: { id: true, address: true } },
+            client: { select: { id: true, name: true } },
+            assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
+          },
+        });
       });
 
       await logAudit({
