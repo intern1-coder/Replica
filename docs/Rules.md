@@ -40,3 +40,10 @@ These rules are non-negotiable constraints for any AI agent (or human) writing c
 ## When in Doubt
 
 If a request would require violating any rule above to implement as asked, stop and flag the conflict rather than silently picking a workaround — these constraints were chosen deliberately in the PRD's Gap Register process, and a workaround that technically satisfies the feature request while violating a rule here is the wrong outcome.
+
+## Git Commits
+
+- **Do not add AI co-authors** to commit messages — no `Co-authored-by: Cursor`, `Co-authored-by: Claude`, or similar trailers.
+- Commits in this repo are authored by the human developer only (project team).
+- When using Cursor or other AI tools, accept the code changes but **strip any Co-authored-by line** before committing, or amend the message to remove it.
+- In Cursor: disable automatic co-author trailers in commit settings if available; otherwise always review the commit message before confirming.

@@ -13,6 +13,37 @@ Provision the instance first: see `docs/AWS_EC2_PROVISIONING.md` (EC2 launch, Se
 
 **Do not mix** `docker-compose.yml` (single `affinity_app`) and `docker-compose.prod.yml` (blue/green) on the same server.
 
+## Deploy in plain English (read this first)
+
+Your server runs **two Docker containers** and **Caddy** (web server):
+
+| Piece | Name | What it does |
+|-------|------|----------------|
+| Database | `affinity_db` | PostgreSQL — all your data |
+| Backend API | `affinity_app` | Node app on port 3000 (PDFs, login, jobs, etc.) |
+| Web server | Caddy (on the VM, not Docker) | HTTPS for your domain; serves the React frontend files and proxies `/api` to port 3000 |
+
+**Every deploy after a code merge does the same thing:**
+
+1. **Pull code** — `git pull` gets the latest from GitHub onto the server at `/app`.
+2. **Rebuild backend** — `docker compose up -d --build` rebuilds the API container from the new code and restarts it. The database container keeps running; data is not wiped.
+3. **Run migrations** — if the database schema changed, `prisma migrate deploy` applies the new SQL safely.
+4. **Clean up Docker junk** — `docker-cleanup.sh` removes old blue/green test containers and unused images so the 1GB disk does not fill up.
+5. **Rebuild frontend** — `npm ci && npm run build` in `/app/frontend` produces new static files in `frontend/dist`.
+6. **Reload Caddy** — so browsers get the new CSS/JS (otherwise you may still see the old mobile layout from cache).
+
+**Two ways to run those steps:**
+
+- **MobaXterm (manual)** — SSH in and run the commands in [Ongoing deploy checklist](#ongoing-deploy-checklist-code--schema-changes) below, one block at a time.
+- **GitHub Actions** — after PR merges to `master`, open Actions → **Deploy to Production** → Run workflow. It SSHes in and runs [`scripts/deploy-single.sh`](../scripts/deploy-single.sh), which does steps 1–6 for you.
+
+**What NOT to use on your 1GB server:**
+
+- `scripts/deploy.sh` — old blue/green script; creates extra containers (`affinity_app_blue`, `affinity_app_green`) that waste RAM.
+- `docker-compose.prod.yml` — same problem; only for a larger server (≥2GB).
+
+**After deploy, check:** open your site on your phone (hard refresh) and run `curl https://yourdomain.com/api/health` — should return `{"status":"ok"}`.
+
 ---
 
 ## 1. EC2 Instance Setup
