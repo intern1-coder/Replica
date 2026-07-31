@@ -1,4 +1,4 @@
-import puppeteer from 'puppeteer-core';
+import { chromium, Browser } from 'playwright';
 import Handlebars from 'handlebars';
 import path from 'path';
 import fs from 'fs/promises';
@@ -16,7 +16,13 @@ const PDF_FOOTER_TEMPLATE = `
 </div>
 `.trim();
 
-// Register Handlebars helpers
+const CHROMIUM_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+];
+
 Handlebars.registerHelper('inc', (value: number) => value + 1);
 Handlebars.registerHelper('formatCurrency', (value: string | number) => {
   const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -24,6 +30,57 @@ Handlebars.registerHelper('formatCurrency', (value: string | number) => {
 });
 
 let logoSrcCache: string | null | undefined;
+let partialsRegistered = false;
+const templateCache = new Map<string, HandlebarsTemplateDelegate>();
+
+let browserInstance: Browser | null = null;
+let browserLaunchPromise: Promise<Browser> | null = null;
+let activePdfJobs = 0;
+const MAX_CONCURRENT_PDFS = 2;
+
+async function getBrowser(): Promise<Browser> {
+  if (browserInstance?.isConnected()) {
+    return browserInstance;
+  }
+
+  if (!browserLaunchPromise) {
+    // Uses Playwright's bundled Chromium (installed via `npx playwright install chromium`),
+    // which ships official linux-arm64 builds — Debian's apt chromium crashes on Graviton.
+    // PUPPETEER_EXECUTABLE_PATH still overrides for local system-Chrome setups.
+    browserLaunchPromise = chromium
+      .launch({
+        args: CHROMIUM_ARGS,
+        ...(config.puppeteer.executablePath
+          ? { executablePath: config.puppeteer.executablePath }
+          : {}),
+      })
+      .then((browser) => {
+        browserInstance = browser;
+        browserLaunchPromise = null;
+        return browser;
+      })
+      .catch((err) => {
+        browserLaunchPromise = null;
+        throw err;
+      });
+  }
+
+  return browserLaunchPromise;
+}
+
+export async function closePdfBrowser(): Promise<void> {
+  if (browserInstance) {
+    await browserInstance.close().catch(() => {});
+    browserInstance = null;
+  }
+}
+
+process.on('SIGTERM', () => {
+  closePdfBrowser().catch(() => {});
+});
+process.on('SIGINT', () => {
+  closePdfBrowser().catch(() => {});
+});
 
 async function getLogoSrc(): Promise<string | null> {
   if (logoSrcCache !== undefined) return logoSrcCache;
@@ -37,7 +94,6 @@ async function getLogoSrc(): Promise<string | null> {
   return logoSrcCache;
 }
 
-// Register partials
 async function registerPartials() {
   try {
     const files = await fs.readdir(partialsDir);
@@ -48,53 +104,59 @@ async function registerPartials() {
         Handlebars.registerPartial(name, content);
       }
     }
-  } catch (err) {
+  } catch {
     // Partials directory may not exist yet
   }
 }
 
-let partialsRegistered = false;
-
-let activePdfJobs = 0;
-const MAX_CONCURRENT_PDFS = 2;
-
 const getTemplate = async (templateName: string) => {
-  // Re-read partials in dev so template edits apply without a server restart;
-  // cache them in production.
-  if (!partialsRegistered || process.env['NODE_ENV'] !== 'production') {
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  if (!partialsRegistered || !isProduction) {
     await registerPartials();
     partialsRegistered = true;
   }
+
+  if (isProduction && templateCache.has(templateName)) {
+    return templateCache.get(templateName)!;
+  }
+
   const content = await fs.readFile(path.join(templatesDir, `${templateName}.hbs`), 'utf-8');
-  return Handlebars.compile(content);
+  const compiled = Handlebars.compile(content);
+
+  if (isProduction) {
+    templateCache.set(templateName, compiled);
+  }
+
+  return compiled;
 };
 
-export async function generatePdf(templateName: string, data: any): Promise<Buffer> {
+/** Renders a report template to a standalone HTML string — the same render step generatePdf feeds to Chromium. */
+export async function renderTemplate(templateName: string, data: any): Promise<string> {
   const logoSrc = await getLogoSrc();
   const template = await getTemplate(templateName);
-  const html = template({ ...data, logoSrc });
+  return template({ ...data, logoSrc });
+}
 
-  // Fallback to standard Chrome path if executablePath is missing (useful for local testing)
-  // For production ARM64 VM, PUPPETEER_EXECUTABLE_PATH MUST be set (e.g. /usr/bin/chromium)
-  const executablePath = config.puppeteer.executablePath ||
-    (process.platform === 'win32'
-      ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-      : process.platform === 'darwin'
-      ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-      : '/usr/bin/google-chrome');
+export async function generatePdf(templateName: string, data: any): Promise<Buffer> {
+  const html = await renderTemplate(templateName, data);
 
   if (activePdfJobs >= MAX_CONCURRENT_PDFS) {
     throw new Error('PDF generation busy — please retry in a moment');
   }
   activePdfJobs++;
+
   try {
-    const browser = await puppeteer.launch({
-      executablePath,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    const browser = await getBrowser();
+    // At the default deviceScaleFactor (1), Chromium rasterizes text at
+    // native pixel density before PDF export, and thin vertical strokes
+    // (e.g. lowercase "l") get rounded to whole pixels and read as
+    // disproportionately bold next to round/wide letters. Rendering at 2x
+    // gives the rasterizer enough resolution that this artifact disappears.
+    const context = await browser.newContext({ deviceScaleFactor: 2 });
+    const page = await context.newPage();
 
     try {
-      const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'domcontentloaded' });
 
       const pdfBuffer = await page.pdf({
@@ -108,12 +170,24 @@ export async function generatePdf(templateName: string, data: any): Promise<Buff
 
       return Buffer.from(pdfBuffer);
     } finally {
-      await browser.close();
+      await page.close().catch(() => {});
+      await context.close().catch(() => {});
     }
   } catch (err) {
-    logger.error('Puppeteer failed to launch or generate PDF (likely missing Chrome/executablePath). Generating dummy fallback PDF.', { error: err instanceof Error ? err.message : String(err) });
-    // Return a very basic dummy PDF file header so it doesn't crash the server during local testing
-    return Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n4 0 obj\n<< /Length 53 >>\nstream\nBT\n/F1 24 Tf\n100 700 Td\n(Mock PDF Generated) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000289 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n393\n%%EOF\n');
+    logger.error('Chromium failed to launch or generate PDF (run `npx playwright install chromium` if missing).', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // A render failure must never silently succeed with a blank placeholder —
+    // documents.ts creates the GeneratedDocument row only after this resolves,
+    // so throwing here means no document, no upload, and a clean 500 instead
+    // of a "success" toast over an empty PDF. The dummy buffer exists only so
+    // a Chromium-less dev box doesn't block on it; never enabled outside tests.
+    if (config.puppeteer.allowMockFallback) {
+      return Buffer.from(
+        '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n4 0 obj\n<< /Length 53 >>\nstream\nBT\n/F1 24 Tf\n100 700 Td\n(Mock PDF Generated) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000289 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n393\n%%EOF\n'
+      );
+    }
+    throw err;
   } finally {
     activePdfJobs--;
   }

@@ -25,6 +25,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+async function fetchSession(authToken: string): Promise<{ status: number; data?: any }> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!res.ok) {
+      return { status: res.status };
+    }
+    const data = await res.json();
+    return { status: res.status, data };
+  } catch {
+    return { status: 0 };
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(localStorage.getItem('affinity_token'));
@@ -35,36 +49,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAuthenticated = !!token;
 
-  const loadSession = useCallback(async (authToken: string) => {
-    const res = await fetch(`${API_BASE}/auth/me`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    if (!res.ok) throw new Error('Failed to load session');
-    const data = await res.json();
-    setUser(data.user ?? null);
-    setPermissions(data.permissions ?? {});
-    return data;
+  const logout = useCallback(() => {
+    setToken(null);
   }, []);
+
+  const loadSession = useCallback(async (authToken: string) => {
+    let result = await fetchSession(authToken);
+
+    // Retry once on transient server/network errors
+    if (result.status !== 401 && result.status !== 200) {
+      await new Promise((r) => setTimeout(r, 1500));
+      result = await fetchSession(authToken);
+    }
+
+    if (result.status === 401) {
+      throw Object.assign(new Error('Session expired'), { status: 401 });
+    }
+    if (result.status !== 200 || !result.data) {
+      throw Object.assign(new Error('Failed to load session'), { status: result.status });
+    }
+
+    setUser(result.data.user ?? null);
+    setPermissions(result.data.permissions ?? {});
+    return result.data;
+  }, []);
+
+  useEffect(() => {
+    const onUnauthorized = () => logout();
+    window.addEventListener('affinity:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('affinity:unauthorized', onUnauthorized);
+  }, [logout]);
 
   useEffect(() => {
     if (token) {
       localStorage.setItem('affinity_token', token);
 
-      loadSession(token).catch(() => {
-        setToken(null);
+      loadSession(token).catch((err: any) => {
+        if (err?.status === 401) {
+          setToken(null);
+        }
       });
 
       const newSocket = io(SOCKET_URL, {
         auth: { token }
       });
       const onPermissionsChanged = () => {
-        loadSession(token).catch(() => setToken(null));
+        loadSession(token).catch((err: any) => {
+          if (err?.status === 401) setToken(null);
+        });
       };
       newSocket.on('user:permissionsChanged', onPermissionsChanged);
+
+      // The server rejects the handshake when the JWT is missing/expired.
+      // Reconnecting with the same token can never succeed — stop retrying
+      // and drop the session instead of spamming failed polling requests.
+      const onConnectError = (err: Error) => {
+        if (/auth|token/i.test(err.message)) {
+          newSocket.disconnect();
+          setToken(null);
+        }
+      };
+      newSocket.on('connect_error', onConnectError);
 
       setSocket(newSocket);
 
       return () => {
+        newSocket.off('connect_error', onConnectError);
         newSocket.off('user:permissionsChanged', onPermissionsChanged);
         newSocket.disconnect();
       };
@@ -102,10 +152,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const logout = () => {
-    setToken(null);
   };
 
   return (

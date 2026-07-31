@@ -42,7 +42,9 @@ const RECEIPT_ALLOWED_MIME_TYPES = new Set([
 export const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 150 * 1024 * 1024, // 150 MB raw ceiling (video safety margin)
+    // Files are buffered fully in RAM (memoryStorage) — on the 1 GB production
+    // box a 150 MB ceiling allowed two concurrent uploads to OOM the host.
+    fileSize: 50 * 1024 * 1024, // 50 MB — ample for phone photos and short videos
     files: 10,                   // max files per upload batch
   },
   fileFilter: (_req, file, cb) => {

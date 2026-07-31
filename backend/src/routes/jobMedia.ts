@@ -96,6 +96,7 @@ router.post(
 
 router.get(
   '/',
+  requirePermission('media:view'),
   [query('jobId').isUUID().withMessage('jobId is required.')],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -125,6 +126,7 @@ router.get(
 
 router.get(
   '/:id/url',
+  requirePermission('media:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

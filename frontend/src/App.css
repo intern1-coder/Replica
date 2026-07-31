@@ -395,9 +395,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px;
+  padding: 4px;
   border-radius: var(--radius-md);
-  background-color: var(--color-brand);
+  background-color: #ffffff;
+  flex-shrink: 0;
+}
+
+.sidebar-brand-logo {
+  display: block;
+  height: 28px;
+  width: auto;
+  max-width: 36px;
+  object-fit: contain;
 }
 
 .sidebar-brand-name {
@@ -735,8 +744,62 @@
 }
 
 @media (max-width: 1024px) {
-  .stat-grid { grid-template-columns: 1fr; }
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .stat-card {
+    padding: var(--space-md);
+    min-height: 0;
+  }
+
+  .stat-card-header {
+    margin-bottom: var(--space-xs);
+    gap: var(--space-xs);
+  }
+
+  .stat-card-header .font-medium {
+    font-size: 0.8125rem;
+    line-height: 1.2;
+  }
+
+  .stat-card-icon {
+    padding: 6px;
+    flex-shrink: 0;
+  }
+
+  .stat-card-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .stat-card-value {
+    font-size: 1.75rem;
+    line-height: 1.1;
+  }
+
+  .stat-card-badge {
+    margin-top: var(--space-xs);
+    font-size: 0.6875rem;
+    padding: 2px 6px;
+  }
+
   .dashboard-bento { grid-template-columns: 1fr; }
+  .dashboard-page { gap: var(--space-md); }
+
+  .dashboard-panel {
+    min-height: auto;
+    padding: var(--space-md);
+  }
+
+  .dashboard-page-title {
+    font-size: 1.5rem;
+  }
+
+  .dashboard-page-subtitle {
+    font-size: 0.9375rem;
+  }
   .app-shell { padding: 0; gap: 0; }
   .sidebar { border-radius: 0; border-top: none; border-bottom: none; border-left: none; }
   .main-content { border-radius: 0; border: none; width: 100%; flex: 1; min-width: 0; }
@@ -1147,6 +1210,34 @@
 .media-confirm-delete:hover { opacity: 0.85; }
 .media-confirm-cancel:hover { opacity: 0.75; }
 
+/* Multi-select mode for bulk delete */
+.media-item.selectable {
+  cursor: pointer;
+}
+
+.media-item.selected {
+  outline: 2px solid var(--color-brand);
+  outline-offset: -2px;
+}
+
+.media-select-checkbox {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 20px;
+  height: 20px;
+  z-index: 2;
+  accent-color: var(--color-brand);
+  cursor: pointer;
+}
+
+.media-section-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
 /* Audit change table */
 .audit-changes-table {
   width: 100%;
@@ -1324,7 +1415,7 @@
 .list-cols-jobs { grid-template-columns: 1fr 1.5fr 2fr 2fr 1.5fr 1fr; }
 .list-cols-clients { grid-template-columns: 2fr 2fr 1fr 1fr 1fr; }
 .list-cols-properties { grid-template-columns: 2fr 1.5fr 1.5fr 0.75fr; }
-.list-cols-engineers { grid-template-columns: 2fr 1.5fr 2fr 1fr 1fr; }
+.list-cols-engineers { grid-template-columns: 1.75fr 1.25fr 1.75fr 0.9fr 1.6fr; }
 .list-cols-team { grid-template-columns: 2fr 2fr 1fr 1fr 1.5fr; }
 
 /* Horizontal scroll wrapper for real tables */

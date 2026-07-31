@@ -114,7 +114,8 @@ SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USER=you@example.com
 SMTP_PASS=<smtp-password>
-SMTP_FROM=noreply@yourdomain.com
+EMAIL_FROM=noreply@yourdomain.com
+EMAIL_FROM_NAME=Affinity Workspace
 
 # AWS S3 (for file uploads) — bucket + IAM user from AWS_EC2_PROVISIONING.md
 STORAGE_REGION=<region>              # e.g. eu-west-2
@@ -197,6 +198,32 @@ Bootstrap complete.
 **Do not re-run** after users have changed passwords unless you intentionally want to reset
 those two accounts back to the `.env` values.
 
+### Reset test data (keep admin users)
+
+Use `scripts/reset-test-data.ts` to wipe jobs, properties, clients, engineers, and
+related records while **preserving all User and Setting rows**.
+
+```bash
+# Optional backup first
+docker compose exec db pg_dump -U $POSTGRES_USER $POSTGRES_DB | gzip > /tmp/pre_reset_$(date +%F).sql.gz
+
+# Run reset inside app container
+docker compose exec app npx tsx scripts/reset-test-data.ts
+```
+
+Local: `cd backend && npm run reset:test-data`
+
+Re-run bootstrap only if you also wiped users (this script does not).
+
+### Session logout after deploy
+
+If users get logged out unexpectedly:
+
+1. Ensure `JWT_SECRET` in `/app/backend/.env` did not change between deploys — changing it invalidates all tokens.
+2. Confirm `/api/auth/me` returns **200** while logged in (401 = expired/invalid token; 500 = backend bug).
+3. Set `JWT_EXPIRES_IN=7d` in `.env` — passed through `docker-compose.yml` to the app container.
+4. Password changes bump `tokenVersion` and force re-login — this is expected.
+
 ---
 
 ## 7. Build the Frontend
@@ -213,10 +240,13 @@ app calls relative `/api` and `/socket.io`, which Caddy proxies to the backend
 on the same origin. Only set `VITE_API_URL` (in `/app/frontend/.env`) before
 building if the API is hosted on a separate domain — see `frontend/.env.example`.
 
-After rebuilding, reload Caddy if the site still shows old assets:
+After rebuilding, reload Caddy if the site still shows old assets (requires
+the systemd service from §10 to already be set up — a bare `caddy reload`
+never sees `$DOMAIN`, since that substitution happens in the invoking
+process's own environment, not the running server's):
 
 ```bash
-sudo caddy reload --config /app/Caddyfile
+sudo systemctl reload caddy
 ```
 
 ---
@@ -321,9 +351,10 @@ Backups land in `s3://<bucket>/backups/`, credentials come from `/app/backend/.e
 |------|---------|
 | View backend logs | `cd /app/backend && docker compose logs -f app` |
 | Restart backend | `cd /app/backend && docker compose restart app` |
-| Reload Caddy config | `sudo caddy reload --config /app/Caddyfile` |
+| Reload Caddy config | `sudo systemctl reload caddy` |
 | Run a migration | `cd /app/backend && docker compose run --rm app npx prisma migrate deploy` |
 | Bootstrap super + client admin | `cd /app/backend && docker compose exec app npx tsx scripts/bootstrap-users.ts` |
+| Reset test data (keep users) | `cd /app/backend && docker compose exec app npx tsx scripts/reset-test-data.ts` |
 | Clean up junk Docker artifacts | `chmod +x /app/scripts/docker-cleanup.sh && /app/scripts/docker-cleanup.sh` |
 
 ---
@@ -355,11 +386,15 @@ The script removes stopped `affinity_app_blue`, `affinity_app_green`, and `affin
 
 ## Ongoing deploy checklist (code + schema changes)
 
+**When:** After every PR is merged to `master`. Merging on GitHub does **not** update the server — you must SSH and run this.
+
+The same block appears automatically in every new pull request (`.github/pull_request_template.md`).
+
 Use this order every time you ship backend or auth changes:
 
 ```bash
 cd /app
-git pull origin <branch>          # 1. get latest code + migrations
+git pull origin master            # 1. get latest code + migrations (always master)
 
 cd /app/backend
 docker compose up -d --build      # 2. rebuild image (required for new scripts/source)
@@ -370,7 +405,7 @@ docker compose exec app npx tsx scripts/bootstrap-users.ts   # 4. only if admin 
 
 cd /app/frontend
 npm ci && npm run build           # 6. rebuild frontend
-sudo caddy reload --config /app/Caddyfile   # 7. if UI looks stale
+sudo systemctl reload caddy       # 7. if UI looks stale
 ```
 
 Verify: `curl https://yourdomain.com/api/health` and log in as SUPER_ADMIN and client ADMIN.

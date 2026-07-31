@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { mergeJobPatch, type FetchOptions } from '../utils/refetch';
 import type { Job } from './JobList';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trash2, Edit } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { JobWorkLogs } from '../components/JobWorkLogs';
 import { JobPnL } from '../components/JobPnL';
 import { JobMediaUpload } from '../components/JobMedia';
@@ -12,6 +13,8 @@ import { JobCommunications } from '../components/JobCommunications';
 import { JobAuditLogs } from '../components/JobAuditLogs';
 import { JobDocuments } from '../components/JobDocuments';
 import { JobEditDetails } from '../components/JobEditDetails';
+import { EditClientModal } from '../components/EditClientModal';
+import { EditTenantModal } from '../components/EditTenantModal';
 
 const allowedTransitions: Record<string, string[]> = {
   TO_BE_CHECKED: ['CHECKED', 'CANCELLED'],
@@ -32,14 +35,21 @@ type JobUpdatedPayload = {
 
 export function JobDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { socket, can, user } = useAuth();
+  const { showToast } = useToast();
   const [job, setJob] = useState<Job | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [error, setError] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [conflictError, setConflictError] = useState(false);
+  const [isEditingClient, setIsEditingClient] = useState(false);
+  const [isEditingTenant, setIsEditingTenant] = useState(false);
   const conflictErrorRef = useRef(conflictError);
   conflictErrorRef.current = conflictError;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmTransition, setConfirmTransition] = useState<{ status: string; label: string } | null>(null);
 
   const loadJob = useCallback(async (options?: FetchOptions) => {
     const background = options?.background ?? false;
@@ -137,6 +147,52 @@ export function JobDetail() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!job) return;
+    setIsDeleting(true);
+    try {
+      await apiFetch(`/jobs/${job.id}`, { method: 'DELETE' });
+      showToast('Job deleted', 'success');
+      navigate('/jobs');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete job', 'error');
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleClientSaved = (updatedClient: { id: string; name: string; email: string | null; phone: string | null }) => {
+    setJob((prev) => {
+      if (!prev || !prev.client) return prev;
+      return { ...prev, client: { ...prev.client, ...updatedClient } };
+    });
+    setIsEditingClient(false);
+    showToast('Client updated', 'success');
+  };
+
+  const handleTenantSaved = async (updatedTenant: { id: string; name: string; phone: string | null; email: string | null }) => {
+    setIsEditingTenant(false);
+    setJob((prev) => (prev ? { ...prev, tenant: { ...prev.tenant, ...updatedTenant } } : prev));
+    showToast('Tenant updated', 'success');
+
+    // Scoped exception to the "snapshot is frozen forever" rule (Rules.md):
+    // refresh only THIS job's copy so a typo fix is visible immediately.
+    // Other jobs for the same tenant keep their original snapshot.
+    if (!job) return;
+    try {
+      const updatedJob = await apiFetch(`/jobs/${job.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          tenantSnapshotName: updatedTenant.name,
+          tenantSnapshotPhone: updatedTenant.phone,
+        }),
+      });
+      setJob((prev) => (prev ? { ...prev, ...updatedJob } : prev));
+    } catch (err: any) {
+      showToast('Tenant saved, but failed to refresh this job\'s snapshot: ' + err.message, 'error');
+    }
+  };
+
   if (isInitialLoading && !job) return <p>Loading job details...</p>;
   if (error && !job) return <p className="text-secondary">{error}</p>;
   if (!job) return <p>Job not found</p>;
@@ -183,43 +239,104 @@ export function JobDetail() {
           </p>
         </div>
 
-        {availableTransitions.length > 0 && (
-          <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
-            {availableTransitions.map(nextStatus => {
-              if (nextStatus === 'AUTHORISED' && !can('jobs:authorize')) {
-                return null;
-              }
-              // Final sign-off is reserved for Accounts (jobs:complete) after
-              // the invoice has been sent.
-              if (nextStatus === 'COMPLETED' && !can('jobs:complete')) {
-                return null;
-              }
+        <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+          {availableTransitions.map(nextStatus => {
+            if (nextStatus === 'AUTHORISED' && !can('jobs:authorize')) {
+              return null;
+            }
+            // Final sign-off is reserved for Accounts (jobs:complete) after
+            // the invoice has been sent.
+            if (nextStatus === 'COMPLETED' && !can('jobs:complete')) {
+              return null;
+            }
+            // Cancelling ("Not Proceeding") is a normal edit, same permission
+            // as every other transition button here — matches the backend's
+            // PATCH /jobs/:id/status guard.
+            if (nextStatus === 'CANCELLED' && !can('jobs:edit')) {
+              return null;
+            }
 
-              const label = nextStatus === 'PENDING_INVOICE'
-                ? 'Send to Accounts (Pending Invoice)'
-                : `Mark as ${nextStatus.replace(/_/g, ' ')}`;
+            const label = nextStatus === 'PENDING_INVOICE'
+              ? 'Send to Accounts (Pending Invoice)'
+              : nextStatus === 'CANCELLED'
+              ? 'Not Proceeding'
+              : `Mark as ${nextStatus.replace(/_/g, ' ')}`;
 
-              return (
-                <button
-                  key={nextStatus}
-                  onClick={() => handleStatusChange(nextStatus)}
-                  disabled={isUpdatingStatus || conflictError}
-                  className={`button ${nextStatus === 'CANCELLED' ? 'danger' : 'primary'}`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        )}
+            return (
+              <button
+                key={nextStatus}
+                onClick={() => setConfirmTransition({ status: nextStatus, label })}
+                disabled={isUpdatingStatus || conflictError}
+                className={`button ${nextStatus === 'CANCELLED' ? 'danger' : 'primary'}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+
+          {can('jobs:delete') && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={isUpdatingStatus || conflictError}
+              className="button danger flex items-center gap-2"
+            >
+              <Trash2 size={16} /> Delete
+            </button>
+          )}
+        </div>
       </div>
+
+      {showDeleteConfirm && (
+        <div className="modal-backdrop entering" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-panel entering section-card" style={{ width: '400px', maxWidth: '90vw' }}>
+            <h3 style={{ margin: '0 0 var(--space-sm) 0', fontSize: '1rem' }}>Delete Job?</h3>
+            <p className="text-secondary" style={{ margin: '0 0 var(--space-md) 0', fontSize: '0.85rem', lineHeight: '1.4' }}>
+              This moves job #{job.sequence} to the Archived tab. It is not permanently deleted and can be restored later.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowDeleteConfirm(false)} className="button secondary" disabled={isDeleting}>Cancel</button>
+              <button onClick={handleDelete} className="button danger" disabled={isDeleting}>
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmTransition && (
+        <div className="modal-backdrop entering" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-panel entering section-card" style={{ width: '400px', maxWidth: '90vw' }}>
+            <h3 style={{ margin: '0 0 var(--space-sm) 0', fontSize: '1rem' }}>{confirmTransition.label}?</h3>
+            <p className="text-secondary" style={{ margin: '0 0 var(--space-md) 0', fontSize: '0.85rem', lineHeight: '1.4' }}>
+              {confirmTransition.status === 'CANCELLED'
+                ? `This moves job #${job.sequence} to the Not Proceeding tab. It stays intact and can be moved back at any time.`
+                : `This will move job #${job.sequence} from ${job.status.replace(/_/g, ' ')} to ${confirmTransition.status.replace(/_/g, ' ')}.`}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmTransition(null)} className="button secondary" disabled={isUpdatingStatus}>Cancel</button>
+              <button
+                onClick={() => { const status = confirmTransition.status; setConfirmTransition(null); handleStatusChange(status); }}
+                className={`button ${confirmTransition.status === 'CANCELLED' ? 'danger' : 'primary'}`}
+                disabled={isUpdatingStatus}
+              >
+                {isUpdatingStatus ? 'Updating...' : confirmTransition.label}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <JobAuditLogs jobId={job.id} />
 
       <div className="detail-grid" style={{ marginBottom: 'var(--space-xl)' }}>
         <div className="section-card" style={{ marginBottom: 0 }}>
-          <div className="section-card-header">
+          <div className="section-card-header flex justify-between items-center">
             <h3 style={{ fontSize: '1rem', margin: 0 }}>Client Information</h3>
+            {can('clients:edit') && job.client && (
+              <button onClick={() => setIsEditingClient(true)} className="button secondary small flex items-center gap-2">
+                <Edit size={12} /> Edit
+              </button>
+            )}
           </div>
           <div className="form-row">
             <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span>
@@ -236,8 +353,13 @@ export function JobDetail() {
         </div>
 
         <div className="section-card" style={{ marginBottom: 0 }}>
-          <div className="section-card-header">
+          <div className="section-card-header flex justify-between items-center">
             <h3 style={{ fontSize: '1rem', margin: 0 }}>Tenant Information (Snapshot)</h3>
+            {can('tenants:edit') && job.tenant && (
+              <button onClick={() => setIsEditingTenant(true)} className="button secondary small flex items-center gap-2">
+                <Edit size={12} /> Edit
+              </button>
+            )}
           </div>
           <div className="form-row">
             <span className="text-secondary" style={{ fontSize: '0.85rem' }}>Name:</span>
@@ -250,10 +372,26 @@ export function JobDetail() {
         </div>
       </div>
 
+      {isEditingClient && job.client && (
+        <EditClientModal
+          client={job.client}
+          onClose={() => setIsEditingClient(false)}
+          onSaved={handleClientSaved}
+        />
+      )}
+
+      {isEditingTenant && job.tenant && (
+        <EditTenantModal
+          tenant={job.tenant}
+          onClose={() => setIsEditingTenant(false)}
+          onSaved={handleTenantSaved}
+        />
+      )}
+
       <JobEditDetails job={job} onUpdated={() => loadJob({ background: true })} />
 
       <JobPnL jobId={job.id} />
-      <JobWorkLogs jobId={job.id} />
+      <JobWorkLogs jobId={job.id} onEngineerAssigned={() => loadJob({ background: true })} />
       <JobCommunications jobId={job.id} />
       <JobMediaUpload jobId={job.id} />
       <JobDocuments jobId={job.id} jobStatus={job.status} scheduledDate={job.scheduledDate} assignedContractors={job.assignedContractors} />

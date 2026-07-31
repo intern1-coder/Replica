@@ -6,6 +6,9 @@ WORKDIR /app
 # Install openssl for Prisma
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
+# Browsers are installed in the production stage, not here
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 # Copy package files
 COPY package*.json ./
 COPY prisma ./prisma/
@@ -27,20 +30,20 @@ FROM node:20-bookworm-slim AS production
 
 WORKDIR /app
 
-# Install production dependencies: chromium (for puppeteer), openssl (for Prisma), postgresql-client (for pg_dump backups)
+# Install production dependencies: openssl (for Prisma), postgresql-client (for pg_dump backups)
 RUN apt-get update && apt-get install -y \
-    chromium \
     openssl \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Set env variables for Puppeteer to use the installed Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
 # Copy built artifacts and production package files
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
+
+# Install Playwright's pinned Chromium + its system dependencies.
+# Debian's apt chromium crashes (SIGTRAP) on arm64/Graviton; Playwright ships
+# official linux-arm64 builds matched to the library version.
+RUN npx playwright install --with-deps chromium
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts ./scripts
@@ -55,4 +58,6 @@ EXPOSE 3000
 # For now, node is fine as Docker handles process supervision, but PM2 is requested in Phase 5.
 # If PM2 is used, we can install it globally and use pm2-runtime.
 # For standard Docker, node dist/server.js is preferred. We will let the ecosystem file or docker-compose decide.
-CMD ["node", "dist/server.js"]
+# Heap capped at 384 MB: the 1 GB production host also runs Postgres, Caddy and
+# Chromium; without a cap Node sizes its heap as if all host RAM were available.
+CMD ["node", "--max-old-space-size=384", "dist/server.js"]

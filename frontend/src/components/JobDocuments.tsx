@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../utils/api';
-import { FileText, Lock, Edit, X } from 'lucide-react';
+import { FileText, Lock, Edit, X, Copy } from 'lucide-react';
 import { DocumentEditModal } from './DocumentEditModal';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,7 +20,7 @@ interface GeneratedDocument {
 const DOCUMENT_STAGE_RULES: Record<string, { allowed: string[]; message: string }> = {
   QUOTE: {
     allowed: ['QUOTED', 'AUTHORISED', 'PENDING_INVOICE', 'COMPLETED'],
-    message: 'Quote Report can only be generated once the job reaches QUOTED stage.',
+    message: 'Diagnostic Report can only be generated once the job reaches QUOTED stage.',
   },
   JOB_SHEET: {
     allowed: ['AUTHORISED', 'PENDING_INVOICE', 'COMPLETED'],
@@ -39,21 +39,30 @@ interface Engineer {
 
 export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContractors }: { jobId: string; jobStatus: string; scheduledDate?: string | null; assignedContractors?: Engineer[] }) {
   const { showToast } = useToast();
-  const { socket } = useAuth();
+  const { socket, can } = useAuth();
   const [docs, setDocs] = useState<GeneratedDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const [editingDoc, setEditingDoc] = useState<GeneratedDocument | null>(null);
   // Hidden by default — logged hours are internal; opt in per report.
   const [includeWorkLogs, setIncludeWorkLogs] = useState(false);
+  // Included by default — opt out when diagnostic photos shouldn't go to the client.
+  const [includeDiagnosticImages, setIncludeDiagnosticImages] = useState(true);
   const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, message: string, onConfirm: () => void} | null>(null);
 
   // Job Sheet chooser dialog
   const [showJobSheetDialog, setShowJobSheetDialog] = useState(false);
   const [customEngineerName, setCustomEngineerName] = useState('');
   const [isGeneratingMultiple, setIsGeneratingMultiple] = useState(false);
+  // Hours ON by default (the sheet's whole purpose is showing the engineer
+  // their own hours); rates OFF by default and only offered to users who can
+  // already see rates elsewhere — both enforced again server-side.
+  const [includeJobSheetHours, setIncludeJobSheetHours] = useState(true);
+  const [includeJobSheetRates, setIncludeJobSheetRates] = useState(false);
+  const [jobSheetHoursByEngineer, setJobSheetHoursByEngineer] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadDocs();
@@ -85,13 +94,19 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
     return rule ? rule.allowed.includes(jobStatus) : false;
   };
 
-  const generateJobSheet = async (engineerName?: string) => {
+  const generateJobSheet = async (engineerId?: string, engineerName?: string) => {
     setIsGenerating(true);
     setError('');
     try {
       const newDoc = await apiFetch('/documents/job-sheet', {
         method: 'POST',
-        body: JSON.stringify({ jobId, engineerName: engineerName || undefined }),
+        body: JSON.stringify({
+          jobId,
+          engineerId: engineerId || undefined,
+          engineerName: engineerName || undefined,
+          includeHours: includeJobSheetHours,
+          includeRates: includeJobSheetRates,
+        }),
       });
       setDocs((prev) => [newDoc, ...prev]);
       showToast('Job Sheet generated', 'success');
@@ -112,7 +127,12 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       try {
         const doc = await apiFetch('/documents/job-sheet', {
           method: 'POST',
-          body: JSON.stringify({ jobId, engineerName: eng.name }),
+          body: JSON.stringify({
+            jobId,
+            engineerId: eng.id,
+            includeHours: includeJobSheetHours,
+            includeRates: includeJobSheetRates,
+          }),
         });
         newDocs.push(doc);
       } catch (err: any) {
@@ -139,6 +159,13 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
     if (type === 'JOB_SHEET') {
       setCustomEngineerName('');
       setShowJobSheetDialog(true);
+      apiFetch(`/work-logs/summary?jobId=${jobId}`)
+        .then((res) => {
+          const byId: Record<string, string> = {};
+          (res.byContractor || []).forEach((c: { contractorId: string; hours: string }) => { byId[c.contractorId] = c.hours; });
+          setJobSheetHoursByEngineer(byId);
+        })
+        .catch(() => setJobSheetHoursByEngineer({}));
       return;
     }
 
@@ -152,7 +179,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
         if (type === 'QUOTE' && !hasDiagnostic) {
           setConfirmDialog({
             isOpen: true,
-            message: "You haven't uploaded any Diagnostic Photos for this job. Are you sure you want to generate the Quote without images?",
+            message: "You haven't uploaded any Diagnostic Photos for this job. Are you sure you want to generate the Diagnostic Report without images?",
             onConfirm: () => { setConfirmDialog(null); executeGenerate(type); }
           });
           return;
@@ -195,7 +222,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       const newDoc = await apiFetch(endpoint, {
         method: 'POST',
         body: JSON.stringify(
-          type === 'COMPLETION_REPORT' ? { jobId, includeWorkLogs } : { jobId }
+          type === 'COMPLETION_REPORT' ? { jobId, includeWorkLogs, includeDiagnosticImages } : { jobId }
         )
       });
       setDocs([newDoc, ...docs]);
@@ -214,13 +241,38 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       if (action === 'download') {
         const a = document.createElement('a');
         a.href = response.url;
-        a.download = '';
+        a.download = response.filename || '';
         a.click();
       } else {
         window.open(response.url, '_blank');
       }
     } catch (err) {
       showToast('Failed to get document URL', 'error');
+    }
+  };
+
+  const handleCopyForEmail = async (id: string) => {
+    setCopyingId(id);
+    try {
+      const response = await apiFetch(`/documents/${id}/html`);
+      const html: string = response.html;
+      const plainText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([html], { type: 'text/html' }),
+            'text/plain': new Blob([plainText], { type: 'text/plain' }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(plainText);
+      }
+      showToast('Report copied — paste it into your email', 'success');
+    } catch (err) {
+      showToast('Failed to copy report for email', 'error');
+    } finally {
+      setCopyingId(null);
     }
   };
 
@@ -256,21 +308,31 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       {error && <div className="page-error">{error}</div>}
 
       <div className="flex" style={{ gap: 'var(--space-sm)', marginBottom: 'var(--space-md)', flexWrap: 'wrap', alignItems: 'center' }}>
-        {renderButton('QUOTE', 'Generate Quote', 'doc-btn-quote')}
+        {renderButton('QUOTE', 'Generate Diagnostic Report', 'doc-btn-quote')}
         {renderButton('JOB_SHEET', 'Generate Job Sheet', 'doc-btn-jobsheet')}
         {renderButton('COMPLETION_REPORT', 'Generate Completion Report', 'doc-btn-completion')}
         {isGenerating && <span className="flex items-center text-secondary" style={{ fontSize: '0.85rem' }}>Generating PDF...</span>}
       </div>
 
       {isDocAllowed('COMPLETION_REPORT') && (
-        <label className="flex items-center gap-2" style={{ marginBottom: 'var(--space-md)', fontSize: '0.85rem', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={includeWorkLogs}
-            onChange={(e) => setIncludeWorkLogs(e.target.checked)}
-          />
-          Include Logged Hours on Client Report
-        </label>
+        <div className="flex" style={{ flexDirection: 'column', gap: 'var(--space-xs)', marginBottom: 'var(--space-md)' }}>
+          <label className="flex items-center gap-2" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={includeWorkLogs}
+              onChange={(e) => setIncludeWorkLogs(e.target.checked)}
+            />
+            Include Logged Hours on Client Report
+          </label>
+          <label className="flex items-center gap-2" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={includeDiagnosticImages}
+              onChange={(e) => setIncludeDiagnosticImages(e.target.checked)}
+            />
+            Include Diagnostic Photos on Completion Report
+          </label>
+        </div>
       )}
 
       {!scheduledDate && isDocAllowed('JOB_SHEET') && (
@@ -283,7 +345,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       {!isDocAllowed('QUOTE') && (
         <div className="flex items-center gap-2" style={{ padding: '0.5rem 0.75rem', marginBottom: 'var(--space-sm)', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
           <Lock size={14} />
-          Quote & Job Sheet will be available once job reaches <strong>QUOTED</strong> stage.
+          Diagnostic Report & Job Sheet will be available once job reaches <strong>QUOTED</strong> stage.
           {!isDocAllowed('COMPLETION_REPORT') && <span>Completion Report requires <strong>PENDING INVOICE</strong> stage.</span>}
         </div>
       )}
@@ -293,6 +355,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
           <thead>
             <tr>
               <th>Type</th>
+              <th>For</th>
               <th>Date</th>
               <th>Action</th>
             </tr>
@@ -301,6 +364,9 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
             {docs.map((doc) => (
               <tr key={doc.id}>
                 <td className="font-medium">{doc.type.replace(/_/g, ' ')}</td>
+                <td className="text-secondary">
+                  {doc.type === 'JOB_SHEET' ? (doc.snapshotData?.contractorName || '—') : '—'}
+                </td>
                 <td className="tabular-nums">{new Date(doc.createdAt).toLocaleString()}</td>
                 <td>
                   <div className="flex gap-2">
@@ -313,13 +379,20 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
                     <button onClick={() => handleDocAction(doc.id, 'download')} className="button secondary small">
                       Download
                     </button>
+                    <button
+                      onClick={() => handleCopyForEmail(doc.id)}
+                      disabled={copyingId === doc.id}
+                      className="button secondary small flex items-center gap-2"
+                    >
+                      <Copy size={12} /> {copyingId === doc.id ? 'Copying...' : 'Copy for Email'}
+                    </button>
                   </div>
                 </td>
               </tr>
             ))}
             {docs.length === 0 && (
               <tr>
-                <td colSpan={3} className="empty-state text-center" style={{ border: 'none' }}>No documents generated yet.</td>
+                <td colSpan={4} className="empty-state text-center" style={{ border: 'none' }}>No documents generated yet.</td>
               </tr>
             )}
           </tbody>
@@ -350,15 +423,39 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
             </div>
             <div style={{ padding: 'var(--space-md)', display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
 
+              <div className="flex" style={{ flexDirection: 'column', gap: 'var(--space-xs)' }}>
+                <label className="flex items-center gap-2" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={includeJobSheetHours} onChange={(e) => setIncludeJobSheetHours(e.target.checked)} />
+                  Include Hours Logged table
+                </label>
+                {can('engineer_costs:view') && (
+                  <label className="flex items-center gap-2" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={includeJobSheetRates}
+                      onChange={(e) => setIncludeJobSheetRates(e.target.checked)}
+                      disabled={!includeJobSheetHours}
+                    />
+                    Include rates / labour cost
+                  </label>
+                )}
+              </div>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '0.25rem 0' }} />
+
               {assignedContractors && assignedContractors.length > 0 && (
                 <>
                   <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>Select an engineer to generate their individual sheet:</p>
                   {assignedContractors.map((eng) => (
                     <div key={eng.id} className="flex justify-between items-center" style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-bg)' }}>
-                      <span className="font-medium">{eng.name}</span>
+                      <span className="font-medium">
+                        {eng.name}
+                        {jobSheetHoursByEngineer[eng.id] !== undefined && (
+                          <span className="text-secondary" style={{ fontWeight: 400, fontSize: '0.8rem' }}> — {Number(jobSheetHoursByEngineer[eng.id]).toFixed(1)} hrs logged</span>
+                        )}
+                      </span>
                       <button
-                        onClick={async () => { setShowJobSheetDialog(false); await generateJobSheet(eng.name); }}
-                        className="button secondary small"
+                        onClick={async () => { setShowJobSheetDialog(false); await generateJobSheet(eng.id); }}
+                        className="button primary small"
                         disabled={isGenerating}
                       >
                         Generate
@@ -378,7 +475,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
                 </>
               )}
 
-              <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>Or generate with a custom / additional name:</p>
+              <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>Or generate with a custom / additional name (not tied to a real engineer — hours can't be filtered to them):</p>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -390,7 +487,7 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
                 <button
                   onClick={async () => {
                     setShowJobSheetDialog(false);
-                    await generateJobSheet(customEngineerName.trim() || undefined);
+                    await generateJobSheet(undefined, customEngineerName.trim() || undefined);
                   }}
                   className="button primary"
                   disabled={isGenerating}

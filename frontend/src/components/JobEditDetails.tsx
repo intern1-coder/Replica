@@ -3,6 +3,7 @@ import { apiFetch } from '../utils/api';
 import { mergeById, type FetchOptions } from '../utils/refetch';
 import type { Job } from '../pages/JobList';
 import CreatableSelect from 'react-select/creatable';
+import { getReactSelectStyles, reactSelectMenuProps } from '../utils/reactSelectTheme';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -56,6 +57,11 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // Set when the job changes on the server (e.g. an engineer gets
+  // auto-assigned from a new work log) while this form is open — surfaced as
+  // a banner rather than silently discarded, since saving over it would
+  // otherwise re-send the stale assignedContractors list and drop the change.
+  const [remoteChangePending, setRemoteChangePending] = useState(false);
 
   const [description, setDescription] = useState(job.description || '');
   const [materials, setMaterials] = useState(job.materials || '');
@@ -138,11 +144,22 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
   }, [socket, job.id, user?.id, isEditing]);
 
   useEffect(() => {
-    if (isEditing) return;
+    if (isEditing) {
+      if (!jobFormFieldsEqual(jobFormSnapshot.current, job)) {
+        setRemoteChangePending(true);
+      }
+      return;
+    }
     if (jobFormFieldsEqual(jobFormSnapshot.current, job)) return;
     jobFormSnapshot.current = job;
     resetFormFromJob(job);
   }, [job, isEditing, resetFormFromJob]);
+
+  const handleReloadFromServer = () => {
+    jobFormSnapshot.current = job;
+    resetFormFromJob(job);
+    setRemoteChangePending(false);
+  };
 
   useEffect(() => {
     if (isEditing) {
@@ -178,12 +195,14 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
   const openEdit = () => {
     resetFormFromJob(job);
     setIsEditing(true);
+    setRemoteChangePending(false);
   };
 
   const handleCancel = () => {
     resetFormFromJob(job);
     loadLineItems();
     setIsEditing(false);
+    setRemoteChangePending(false);
     setError('');
   };
 
@@ -208,6 +227,7 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
     setError('');
     try {
       const payload: Record<string, unknown> = {
+        version: job.version,
         description,
         materials,
         assignedContractorIds: selectedContractors.map((c) => c.value),
@@ -243,13 +263,25 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
       }
 
       setIsEditing(false);
+      setRemoteChangePending(false);
       setDeletedLineItemIds([]);
       await loadLineItems();
       onUpdated();
       showToast('Job details saved', 'success');
     } catch (err: any) {
-      setError(err.message || 'Failed to update job');
-      showToast(err.message || 'Failed to update job', 'error');
+      if (err.status === 409) {
+        // The version this form was built from is stale — someone else saved
+        // a change in the meantime. Nothing here was saved. Surface the same
+        // "reload" banner used for the proactive staleness check, since by
+        // now the job prop has very likely already picked up their change
+        // via the job:updated socket event.
+        setRemoteChangePending(true);
+        setError('Someone else saved changes to this job while you were editing. Your changes were not saved — reload to see the latest version, then re-apply your edits.');
+        showToast('Save conflict — someone else updated this job first', 'error');
+      } else {
+        setError(err.message || 'Failed to update job');
+        showToast(err.message || 'Failed to update job', 'error');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -352,6 +384,13 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
 
       {error && <div className="page-error">{error}</div>}
 
+      {remoteChangePending && (
+        <div className="flex justify-between items-center" style={{ padding: '0.75rem', backgroundColor: 'var(--status-quoted-bg)', color: 'var(--status-quoted-text)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--status-quoted-border)', marginBottom: 'var(--space-md)', fontSize: '0.85rem' }}>
+          <span>Someone else updated this job while you were editing — saving now could overwrite their change.</span>
+          <button type="button" onClick={handleReloadFromServer} className="button secondary small" disabled={isSubmitting}>Reload</button>
+        </div>
+      )}
+
       <div className="form-row">
         <label className="form-label">Job Date & Time</label>
         <p className="text-secondary" style={{ margin: '0 0 0.25rem', fontSize: '0.8125rem' }}>
@@ -386,7 +425,8 @@ export function JobEditDetails({ job, onUpdated }: { job: Job; onUpdated: () => 
           options={availableContractors.map((c) => ({ label: c.name, value: c.id }))}
           value={selectedContractors}
           placeholder="Select or type to create..."
-          styles={{ container: (base) => ({ ...base, width: '100%' }) }}
+          styles={getReactSelectStyles()}
+          {...reactSelectMenuProps}
         />
       </div>
 

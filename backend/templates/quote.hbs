@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Diagnostic & Quote Report - {{jobNumber}}</title>
+  <title>Diagnostic Report - {{jobNumber}}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; font-synthesis: none; }
     .page { padding: 0; }
     .company-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 15px; border-bottom: 3px solid #1e40af; margin-bottom: 20px; }
     .company-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -13,32 +13,33 @@
     .company-name { font-size: 22px; font-weight: 700; color: #1e40af; }
     .company-tagline { font-size: 10px; color: #6b7280; }
     .company-meta { text-align: right; font-size: 10px; color: #6b7280; }
-    .company-footer { margin-top: 30px; padding-top: 15px; border-top: 2px solid #e5e7eb; text-align: center; font-size: 10px; color: #6b7280; }
-    .company-footer-line { margin: 4px 0; }
-    .company-footer a { color: #374151; text-decoration: none; }
     .report-title { background: #1e40af; color: white; padding: 10px 15px; font-size: 16px; font-weight: 700; text-align: center; margin-bottom: 20px; border-radius: 4px; }
     .details-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
     .details-table th, .details-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
     .details-table th { background: #f3f4f6; color: #374151; font-weight: 600; width: 30%; }
     .section-title { font-size: 13px; font-weight: 700; color: #374151; padding: 8px 0; border-bottom: 2px solid #e5e7eb; margin: 20px 0 10px 0; }
-    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
     .items-table th, .items-table td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
     .items-table th { background: #f3f4f6; color: #374151; font-weight: 600; }
     .items-table td.number { text-align: center; width: 40px; }
     .items-table td.price { text-align: right; width: 100px; }
-
-    .totals-table { width: 100%; border-collapse: collapse; margin-top: 0; }
+    /* Totals live in their OWN table, not a tfoot on items-table — a
+       border-collapse trick (hidden border / blank row) render-tested fine
+       on screen but did not reliably create a gap in the actual printed
+       PDF. A margin-top between two separate block-level tables has no
+       such ambiguity, in print or on screen. */
+    .totals-table { width: 100%; border-collapse: collapse; margin-top: 14px; }
     .totals-table td { border: 1px solid #d1d5db; padding: 8px 12px; }
-    .totals-table .label { text-align: right; font-weight: 600; background: #f9fafb; }
-    .totals-table .value { text-align: right; width: 120px; }
-    .totals-table .grand-total td { font-weight: 700; font-size: 13px; background: #eff6ff; }
+    .totals-table td.label { text-align: right; font-weight: 600; background: #f9fafb; }
+    .totals-table td.price { text-align: right; width: 100px; }
+    .totals-table tr.grand-total td { font-weight: 700; font-size: 13px; background: #eff6ff; }
   </style>
 </head>
 <body>
   <div class="page">
     {{> _company_header accentColor="#1e40af"}}
 
-    <div class="report-title">Diagnostic & Quote Report</div>
+    <div class="report-title">Diagnostic Report</div>
 
     <table class="details-table">
       <tr><th>Client:</th><td>{{clientName}}</td></tr>
@@ -70,26 +71,25 @@
         {{/each}}
       </tbody>
     </table>
-
     <table class="totals-table">
       <tr>
-        <td class="label">TOTAL NET Price Including Labour and Materials:</td>
-        <td class="value">£{{quotedValue}}</td>
+        <td class="label" colspan="2">TOTAL NET Price Including Labour and Materials:</td>
+        <td class="price">£{{quotedValue}}</td>
       </tr>
       <tr>
-        <td class="label">VAT ({{vatPercent}}%):</td>
-        <td class="value">£{{vatAmount}}</td>
+        <td class="label" colspan="2">VAT ({{vatPercent}}%):</td>
+        <td class="price">£{{vatAmount}}</td>
       </tr>
       <tr class="grand-total">
-        <td class="label">TOTAL inc. VAT:</td>
-        <td class="value">£{{totalWithVat}}</td>
+        <td class="label" colspan="2">TOTAL inc. VAT:</td>
+        <td class="price">£{{totalWithVat}}</td>
       </tr>
     </table>
     {{/if}}
 
     {{> _image_grid title="Diagnostic Photos" images=diagnosticImages}}
 
-    {{> _company_footer}}
+    <p style="margin-top: 20px; font-size: 11px; color: #6b7280;">If you have any questions regarding the above quotation, please feel free to contact me on 0203 148 4476.</p>
   </div>
 </body>
 </html>

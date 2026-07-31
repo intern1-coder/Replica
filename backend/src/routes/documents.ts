@@ -10,13 +10,18 @@ import s3 from '../lib/s3';
 import config from '../config';
 import { validate } from '../middleware/errorHandler';
 import { requireAuth, requirePermission } from '../middleware/auth';
-import { generatePdf } from '../services/pdfService';
-import { formatJobNumber } from '../lib/utils';
+import { generatePdf, renderTemplate } from '../services/pdfService';
+import { buildDocumentFilename } from '../lib/documentFilename';
+import { formatJobNumber, formatPropertyAddress } from '../lib/utils';
 import logger from '../lib/logger';
 import { emitToJob } from '../lib/socket';
 import { getMediaSignedUrl } from '../services/storageService';
 import { getBase64Images } from '../services/imageEmbedder';
 import { getVatRate } from './settings';
+import juice from 'juice';
+import { ACTIVE_ASSIGNED_CONTRACTORS } from '../lib/prismaSelects';
+import { buildJobSheetSnapshot, resolveJobSheetContractor } from '../services/jobSheetSnapshot';
+import { summariseWorkLogs } from '../services/workLogSummary';
 
 const router = Router();
 router.use(requireAuth);
@@ -66,6 +71,15 @@ function calculateVat(netValue: string | number, rate: number = 0.2): { vatAmoun
   };
 }
 
+function templateNameForDocType(type: DocumentType): string {
+  switch (type) {
+    case DocumentType.QUOTE: return 'quote';
+    case DocumentType.JOB_SHEET: return 'job_sheet';
+    case DocumentType.COMPLETION_REPORT: return 'completion_report';
+    default: return '';
+  }
+}
+
 // ── POST /api/documents/quote ──────────────────────────────────────────────────
 
 router.post(
@@ -110,7 +124,7 @@ router.post(
         jobNumber: formatJobNumber(job.sequence),
         date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
         clientName: job.client?.name || 'No Client Assigned',
-        propertyAddress: job.property?.address || 'No Property Assigned',
+        propertyAddress: job.property ? formatPropertyAddress(job.property) : 'No Property Assigned',
         description: job.description || 'No description provided.',
         quotedValue,
         vatAmount,
@@ -145,11 +159,21 @@ router.post(
 );
 
 // ── POST /api/documents/job-sheet ──────────────────────────────────────────────
+// engineerId (preferred) ties the sheet to a real, currently-assigned
+// Engineer row and filters the Hours Logged table to that engineer's own
+// entries. engineerName is a legacy free-text override — kept for
+// backwards compatibility, but it has no FK and never filters hours.
 
 router.post(
   '/job-sheet',
   requirePermission('documents:create'),
-  [body('jobId').isUUID(), body('engineerName').optional().isString().trim()],
+  [
+    body('jobId').isUUID(),
+    body('engineerId').optional().isUUID(),
+    body('engineerName').optional().isString().trim(),
+    body('includeHours').optional().isBoolean().toBoolean(),
+    body('includeRates').optional().isBoolean().toBoolean(),
+  ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -157,8 +181,13 @@ router.post(
         where: { id: req.body.jobId, deletedAt: null },
         include: {
           property: true,
-          assignedContractors: true,
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
           quoteLineItems: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
+          workLogs: {
+            where: { deletedAt: null },
+            include: { contractor: { select: { id: true, name: true } } },
+            orderBy: { workDate: 'asc' },
+          },
         },
       });
 
@@ -171,51 +200,35 @@ router.post(
       if (!JOB_SHEET_ALLOWED_STATUSES.includes(job.status)) {
         res.status(400).json({
           error: 'Bad Request',
-          message: 'Job Sheet can only be generated once the job reaches QUOTED stage.',
+          message: 'Job Sheet can only be generated once the job reaches AUTHORISED stage.',
         });
+        return;
+      }
+
+      const resolution = resolveJobSheetContractor(job.assignedContractors, {
+        engineerId: req.body.engineerId,
+        engineerName: req.body.engineerName,
+      });
+      if ('error' in resolution) {
+        res.status(422).json({ error: 'Unprocessable Entity', message: resolution.error });
         return;
       }
 
       // Fetch diagnostic images as base64
       const diagnosticImages = await getBase64Images(job.id, 'DIAGNOSTIC');
 
-      // Format scheduled date and time separately
-      let scheduledDate = 'TBD';
-      let scheduledTime = 'TBD';
-      if (job.scheduledDate) {
-        scheduledDate = job.scheduledDate.toLocaleDateString('en-GB', {
-          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-        });
-        scheduledTime = job.scheduledDate.toLocaleTimeString('en-GB', {
-          hour: '2-digit', minute: '2-digit',
-        });
-      }
+      const includeHours = req.body.includeHours !== false;
+      // Rates are margin-sensitive — opt-in, and gated server-side regardless
+      // of what the request body asks for.
+      const includeRates = req.body.includeRates === true && req.user!.can('engineer_costs:view');
 
-      // Use provided engineerName override or fall back to assigned engineers
-      const contractorName = req.body.engineerName
-        || (job.assignedContractors && job.assignedContractors.length > 0
-          ? job.assignedContractors.map((c: any) => c.name).join(', ')
-          : 'Unassigned');
-
-      const snapshotData = {
-        jobNumber: formatJobNumber(job.sequence),
-        scheduledDate,
-        scheduledTime,
-        status: 'AUTHORISED',
-        contractorName,
-        propertyAddress: job.property?.address || 'No Property Assigned',
-        tenantName: job.tenantSnapshotName || 'N/A',
-        tenantPhone: job.tenantSnapshotPhone || '',
-        accessNotes: job.property?.accessNotes || '',
-        materials: job.materials || 'N/A',
-        description: job.description || 'No description provided.',
-        diagnosticNotes: job.diagnosticNotes || '',
-        lineItems: job.quoteLineItems.map((item: any) => ({
-          description: item.description,
-          price: Number(item.price).toFixed(2),
-        })),
+      const snapshotData = buildJobSheetSnapshot(job, {
+        contractorName: resolution.contractorName,
+        matchedEngineerId: resolution.matchedEngineerId,
+        includeHours,
+        includeRates,
         diagnosticImages,
-      };
+      });
 
       const pdfBuffer = await generatePdf('job_sheet', snapshotData);
       const storageKey = await uploadPdfToStorage(job.id, pdfBuffer, DocumentType.JOB_SHEET);
@@ -248,6 +261,8 @@ router.post(
     // Logged hours are hidden from client reports unless explicitly opted in —
     // protects margins by default.
     body('includeWorkLogs').optional().isBoolean().toBoolean(),
+    // Diagnostic (before) photos are included by default — opt out per report.
+    body('includeDiagnosticImages').optional().isBoolean().toBoolean(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -257,7 +272,7 @@ router.post(
         include: {
           property: true,
           client: true,
-          assignedContractors: true,
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
           quoteLineItems: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
           workLogs: {
             where: { deletedAt: null },
@@ -281,8 +296,10 @@ router.post(
         return;
       }
 
-      // Fetch both diagnostic and completion images as base64
-      const diagnosticImages = await getBase64Images(job.id, 'DIAGNOSTIC');
+      const includeDiagnosticImages = req.body.includeDiagnosticImages !== false;
+
+      // Fetch completion images always; diagnostic images only when opted in.
+      const diagnosticImages = includeDiagnosticImages ? await getBase64Images(job.id, 'DIAGNOSTIC') : [];
       const completionImages = await getBase64Images(job.id, 'COMPLETION');
 
       const quotedValue = job.quotedValue ? Number(job.quotedValue).toFixed(2) : '0.00';
@@ -298,6 +315,16 @@ router.post(
         date: wl.workDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
         hours: `${Number(wl.hoursWorked)} Hour${Number(wl.hoursWorked) !== 1 ? 's' : ''}`,
       }));
+      const totalHours = includeWorkLogs
+        ? summariseWorkLogs(
+            job.workLogs.map((wl: any) => ({
+              contractorId: wl.contractorId,
+              hoursWorked: wl.hoursWorked,
+              rateApplied: 0,
+              materialCost: 0,
+            }))
+          ).totals.hours
+        : '0.00';
 
       // Build "completed by" string from contractors
       const completedBy = job.assignedContractors && job.assignedContractors.length > 0
@@ -311,7 +338,7 @@ router.post(
           ? job.completedAt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
           : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
         clientName: job.client?.name || 'No Client Assigned',
-        propertyAddress: job.property?.address || 'No Property Assigned',
+        propertyAddress: job.property ? formatPropertyAddress(job.property) : 'No Property Assigned',
         description: job.description || 'No description provided.',
         completionNotes: job.completionNotes || '',
         completedBy,
@@ -325,6 +352,8 @@ router.post(
         })),
         includeWorkLogs,
         workLogs,
+        totalHours,
+        includeDiagnosticImages,
         diagnosticImages,
         completionImages,
       };
@@ -351,7 +380,10 @@ router.post(
 );
 
 // ── PATCH /api/documents/:id ───────────────────────────────────────────────────
-// Edit a document's snapshot data and regenerate the PDF
+// Edits a document's snapshot data and regenerates the PDF as a NEW
+// GeneratedDocument row — the original row and its storageKey are left
+// untouched and still downloadable. A new version of a report is a new row,
+// never an overwrite in place (Rules.md).
 
 router.patch(
   '/:id',
@@ -374,41 +406,36 @@ router.patch(
       }
 
       const newSnapshotData = req.body.snapshotData;
-      
-      // We log the change
+      const templateName = templateNameForDocType(doc.type);
+
+      // Re-generate PDF with the edited snapshot
+      const pdfBuffer = await generatePdf(templateName, newSnapshotData);
+      const storageKey = await uploadPdfToStorage(doc.jobId, pdfBuffer, doc.type);
+
+      const newDoc = await prisma.generatedDocument.create({
+        data: {
+          jobId: doc.jobId,
+          type: doc.type,
+          storageKey,
+          snapshotData: newSnapshotData,
+          generatedById: req.user!.id,
+        },
+      });
+
       await prisma.auditLog.create({
         data: {
           jobId: doc.jobId,
-          action: AuditAction.UPDATE,
+          action: AuditAction.CREATE,
           performedById: req.user!.id,
           entityType: 'GeneratedDocument',
-          entityId: doc.id,
+          entityId: newDoc.id,
           before: doc.snapshotData as any,
           after: newSnapshotData,
         }
       });
 
-      // We need the template name
-      let templateName = '';
-      if (doc.type === 'QUOTE') templateName = 'quote';
-      if (doc.type === 'JOB_SHEET') templateName = 'job_sheet';
-      if (doc.type === 'COMPLETION_REPORT') templateName = 'completion_report';
-
-      // Re-generate PDF with the updated snapshot
-      const pdfBuffer = await generatePdf(templateName, newSnapshotData);
-      
-      // Re-upload (we can reuse the same storageKey to overwrite, or create a new one. Overwrite is easier)
-      const storageKey = await uploadPdfToStorage(doc.jobId, pdfBuffer, doc.type);
-
-      const updatedDoc = await prisma.generatedDocument.update({
-        where: { id: doc.id },
-        data: {
-          snapshotData: newSnapshotData,
-          storageKey, // in case it changed
-        }
-      });
-
-      res.json(updatedDoc);
+      emitToJob(doc.jobId, 'document:created', { jobId: doc.jobId, ts: new Date().toISOString() });
+      res.json(newDoc);
     } catch (err) {
       next(err);
     }
@@ -434,8 +461,47 @@ router.get(
       }
 
       const isDownload = req.query.download === 'true';
-      const url = await getMediaSignedUrl(doc.storageKey, isDownload);
-      res.json({ id: doc.id, url, type: doc.type });
+      const filename = buildDocumentFilename(doc);
+      const url = await getMediaSignedUrl(doc.storageKey, isDownload, filename);
+      res.json({ id: doc.id, url, type: doc.type, filename });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── GET /api/documents/:id/html ─────────────────────────────────────────────────
+// Re-renders the report as a standalone, email-safe HTML string for pasting
+// directly into an email client. Not persisted — rebuilt on demand from the
+// same snapshotData used to generate the PDF, so it always matches it exactly.
+
+router.get(
+  '/:id/html',
+  [param('id').isUUID()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const doc = await prisma.generatedDocument.findUnique({
+        where: { id: req.params['id'] },
+      });
+
+      if (!doc) {
+        res.status(404).json({ error: 'Not Found', message: 'Document not found.' });
+        return;
+      }
+
+      const templateName = templateNameForDocType(doc.type);
+      if (!templateName) {
+        res.status(500).json({ error: 'Internal Server Error', message: 'Unknown document type.' });
+        return;
+      }
+
+      const rawHtml = await renderTemplate(templateName, doc.snapshotData);
+      // Most email clients strip <style> blocks on paste — inline the rules
+      // onto each element so tables, borders and colours survive.
+      const html = juice(rawHtml);
+
+      res.json({ html });
     } catch (err) {
       next(err);
     }

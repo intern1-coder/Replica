@@ -6,16 +6,32 @@ services:
     image: affinity-backend
     container_name: affinity_app
     restart: always
+    # Cap so a runaway request can't OOM the whole 1 GB host (Postgres/Caddy
+    # share it). Sized for Node (384 MB heap cap in Dockerfile) + Chromium PDF spikes.
+    mem_limit: 768m
+    # Loopback-only — Caddy reverse-proxies to this over 127.0.0.1 (see
+    # scripts/deploy-single.sh). Previously "3000:3000" (all interfaces):
+    # internet-reachable, SG-mitigated only, and combined with `trust proxy`
+    # (app.ts) let a direct caller spoof X-Forwarded-For to defeat every
+    # rate limiter, including the login brute-force guard.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      # connection_limit — Prisma defaults to (2 * vCPUs + 1) = 5 on this
+      # 2-vCPU host, which PRODUCTION_HARDENING.md already diagnosed as
+      # causing timeouts under normal load; explicit 15 matches
+      # docker-compose.prod.yml and .env.example.
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=15
       - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
       - CORS_ORIGIN=${CORS_ORIGIN}
       - FRONTEND_URL=${FRONTEND_URL}
       - APP_URL=${APP_URL}
-      - SMTP_FROM=${SMTP_FROM}
+      # EMAIL_FROM is the name config/index.ts actually reads; SMTP_FROM is
+      # kept as a fallback so an existing .env using the old name still works.
+      - EMAIL_FROM=${EMAIL_FROM:-${SMTP_FROM:-}}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-Affinity Workspace}
       - ALERT_EMAIL=${ALERT_EMAIL}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT:-587}
@@ -43,14 +59,21 @@ services:
     image: postgres:15-alpine
     container_name: affinity_db
     restart: always
+    mem_limit: 256m
+    shm_size: 128mb
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Loopback-only — matches app's 127.0.0.1 binding in docker-compose.prod.yml.
+    # The app reaches Postgres over the internal Docker network (db:5432); this
+    # binding only exists for an admin SSH'd into the host to psql in directly.
+    # Previously "5432:5432" (all interfaces) — internet-reachable, SG-mitigated
+    # only.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s

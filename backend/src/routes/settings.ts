@@ -25,6 +25,7 @@ export async function getVatRate(): Promise<number> {
 
 router.get(
   '/vat-rate',
+  requirePermission('settings:view'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const vatRate = await getVatRate();

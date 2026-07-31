@@ -2,7 +2,9 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import jwt from 'jsonwebtoken';
 import config from '../config';
+import prisma from './prisma';
 import logger from './logger';
+import { resolveAuthenticatedUser, type ResolvedUser } from '../middleware/auth';
 
 // ── Singleton ──────────────────────────────────────────────────────────────────
 let io: SocketIOServer | null = null;
@@ -23,38 +25,65 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     },
   });
 
-  // JWT auth middleware — runs before 'connection' event
-  io.use((socket: Socket, next) => {
+  // JWT auth middleware — runs before 'connection' event.
+  // A socket can stay open for as long as its JWT is valid (up to
+  // JWT_EXPIRES_IN, e.g. 7 days) — signature verification alone would let a
+  // deactivated user, or one whose password was just reset/changed
+  // (tokenVersion bump = the app's force-logout mechanism), keep receiving
+  // live job data for the rest of that window. resolveAuthenticatedUser is
+  // the same check requireAuth applies to every HTTP request, so a socket
+  // can never be more trusting than an HTTP call made with the same token.
+  io.use(async (socket: Socket, next) => {
     const token = socket.handshake.auth['token'] as string | undefined;
     if (!token) {
       return next(new Error('Authentication required.'));
     }
+    let payload: jwt.JwtPayload;
     try {
-      const payload = jwt.verify(token, config.jwt.secret);
-      socket.data['user'] = payload;
-      next();
+      payload = jwt.verify(token, config.jwt.secret) as jwt.JwtPayload;
     } catch {
-      next(new Error('Invalid or expired token.'));
+      return next(new Error('Invalid or expired token.'));
     }
+
+    const resolved = await resolveAuthenticatedUser(payload);
+    if (!resolved.ok) {
+      return next(new Error(
+        resolved.reason === 'stale_token'
+          ? 'Session expired. Please log in again.'
+          : 'User account not found or has been deactivated.'
+      ));
+    }
+
+    socket.data['user'] = resolved.user;
+    next();
   });
 
   io.on('connection', (socket: Socket) => {
-    const userId = (socket.data['user'] as { userId?: string })?.userId;
-    logger.info('Socket connected', { socketId: socket.id, userId });
+    const user = socket.data['user'] as ResolvedUser;
+    logger.info('Socket connected', { socketId: socket.id, userId: user.id });
 
-    if (userId) {
-      socket.join(`user:${userId}`);
-    }
+    socket.join(`user:${user.id}`);
 
-    socket.on('job:join', (jobId: string) => {
+    // Re-checked here (not just at handshake) because a socket can stay open
+    // far longer than a single request, and joining a job's room is what
+    // actually grants access to that job's realtime data (description,
+    // materials, quoted value, tenant snapshot fields, media storage keys).
+    // Mirrors the same jobs:view permission + not-soft-deleted check the
+    // HTTP job routes apply.
+    socket.on('job:join', async (jobId: unknown) => {
+      if (typeof jobId !== 'string' || !jobId) return;
+      if (!user.can('jobs:view')) return;
+      const job = await prisma.job.findFirst({ where: { id: jobId, deletedAt: null }, select: { id: true } });
+      if (!job) return;
       socket.join(`job:${jobId}`);
     });
-    socket.on('job:leave', (jobId: string) => {
+    socket.on('job:leave', (jobId: unknown) => {
+      if (typeof jobId !== 'string' || !jobId) return;
       socket.leave(`job:${jobId}`);
     });
 
     socket.on('disconnect', (reason) => {
-      logger.info('Socket disconnected', { socketId: socket.id, userId, reason });
+      logger.info('Socket disconnected', { socketId: socket.id, userId: user.id, reason });
     });
   });
 

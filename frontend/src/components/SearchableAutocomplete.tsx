@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Loader2 } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { API_BASE } from '../config';
 
 export interface AutocompleteProps<T> {
-  endpoint: string; // e.g. '/tenants', '/clients', '/properties'
+  endpoint: string;
   placeholder: string;
   labelKey: (item: T) => string;
   subLabelKey?: (item: T) => string | undefined;
@@ -15,6 +15,15 @@ export interface AutocompleteProps<T> {
   defaultOptionsTitle?: string;
 }
 
+// Stable identity for callers that omit `defaultOptions` — a `= []` default
+// parameter is a NEW array on every render, which retriggers the effect
+// below forever (it's in that effect's dependency array).
+const NO_DEFAULT_OPTIONS: never[] = [];
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function SearchableAutocomplete<T extends { id: string }>({
   endpoint,
   placeholder,
@@ -24,7 +33,7 @@ export function SearchableAutocomplete<T extends { id: string }>({
   selectedItem,
   allowCreate = false,
   onCreateNew,
-  defaultOptions = [],
+  defaultOptions = NO_DEFAULT_OPTIONS,
   defaultOptionsTitle
 }: AutocompleteProps<T>) {
   const [query, setQuery] = useState('');
@@ -32,63 +41,79 @@ export function SearchableAutocomplete<T extends { id: string }>({
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const labelKeyRef = useRef(labelKey);
+  labelKeyRef.current = labelKey;
 
   useEffect(() => {
     if (selectedItem) {
-      setQuery(labelKey(selectedItem));
+      setQuery(labelKeyRef.current(selectedItem));
     } else {
       setQuery('');
     }
-  }, [selectedItem, labelKey]);
+  }, [selectedItem]);
 
   useEffect(() => {
-    // Click outside handler
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [wrapperRef]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    
+    if (!isOpen) return;
+
     if (query.length < 2) {
-      if (defaultOptions && defaultOptions.length > 0) {
-        setResults(defaultOptions);
-      } else {
-        setResults([]);
-      }
+      setResults((prev) => (prev === defaultOptions ? prev : defaultOptions));
       setIsLoading(false);
       return;
     }
 
-    if (selectedItem && query === labelKey(selectedItem)) {
-      return; // user hasn't changed the text
+    if (selectedItem && query === labelKeyRef.current(selectedItem)) {
+      return;
     }
+
+    const controller = new AbortController();
 
     const timer = setTimeout(async () => {
       setIsLoading(true);
       try {
-        const response = await apiFetch(`${endpoint}?q=${encodeURIComponent(query)}`);
-        setResults(response.data || []);
+        const token = localStorage.getItem('affinity_token');
+        const headers: HeadersInit = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const response = await fetch(
+          `${API_BASE}${endpoint}?q=${encodeURIComponent(query)}`,
+          { headers, signal: controller.signal }
+        );
+
+        if (!response.ok) throw new Error('Search failed');
+        const data = await response.json();
+        if (!controller.signal.aborted) {
+          setResults(data.data || []);
+        }
       } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return;
         console.error(e);
       } finally {
+        // Reset even on abort — otherwise closing the dropdown mid-fetch can
+        // leave the spinner stuck the next time it opens with no new fetch
+        // to clear it (e.g. query already < 2 chars).
         setIsLoading(false);
       }
     }, 300);
 
-    return () => clearTimeout(timer);
-  }, [query, isOpen, endpoint, selectedItem, labelKey, defaultOptions]);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, isOpen, endpoint, selectedItem?.id, defaultOptions]);
 
   const handleSelect = (item: T) => {
     onSelect(item);
-    setQuery(labelKey(item));
+    setQuery(labelKeyRef.current(item));
     setIsOpen(false);
   };
 
@@ -101,12 +126,12 @@ export function SearchableAutocomplete<T extends { id: string }>({
 
   const highlightMatch = (text: string, q: string) => {
     if (!q || !text) return text;
-    const parts = text.split(new RegExp(`(${q})`, 'gi'));
+    const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, 'gi'));
     return (
       <>
-        {parts.map((part, i) => 
-          part.toLowerCase() === q.toLowerCase() 
-            ? <span key={i} className="font-medium text-primary" style={{ backgroundColor: 'var(--color-brand-light)' }}>{part}</span> 
+        {parts.map((part, i) =>
+          part.toLowerCase() === q.toLowerCase()
+            ? <span key={i} className="font-medium text-primary autocomplete-highlight">{part}</span>
             : part
         )}
       </>
@@ -122,34 +147,34 @@ export function SearchableAutocomplete<T extends { id: string }>({
           onChange={(e) => {
             setQuery(e.target.value);
             setIsOpen(true);
-            if (selectedItem && e.target.value !== labelKey(selectedItem)) {
-              onSelect(null); // Deselect if they start typing something else
+            if (selectedItem && e.target.value !== labelKeyRef.current(selectedItem)) {
+              onSelect(null);
             }
           }}
           onClick={() => setIsOpen(true)}
           placeholder={placeholder}
-          style={{ 
-            width: '100%', 
-            paddingLeft: '2.5rem', 
+          style={{
+            width: '100%',
+            paddingLeft: '2.5rem',
             paddingRight: selectedItem ? '2.5rem' : '1rem',
             borderColor: isOpen ? 'var(--color-brand)' : 'var(--color-border)',
             boxShadow: isOpen ? '0 0 0 2px var(--color-brand-light)' : 'none'
           }}
         />
         <Search size={16} className="text-muted" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-        
+
         {selectedItem && (
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={handleClear}
-            style={{ 
-              position: 'absolute', 
-              right: '12px', 
-              top: '50%', 
-              transform: 'translateY(-50%)', 
-              background: 'none', 
-              border: 'none', 
-              fontSize: '1.2rem', 
+            style={{
+              position: 'absolute',
+              right: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              background: 'none',
+              border: 'none',
+              fontSize: '1.2rem',
               color: 'var(--color-text-muted)',
               cursor: 'pointer',
               padding: 0
@@ -160,13 +185,13 @@ export function SearchableAutocomplete<T extends { id: string }>({
         )}
       </div>
 
-      {isOpen && !selectedItem && (query.length >= 2 || (defaultOptions && defaultOptions.length > 0)) && (
-        <div className="section-card entering" style={{ 
-          position: 'absolute', 
-          top: '100%', 
-          left: 0, 
-          right: 0, 
-          zIndex: 50, 
+      {isOpen && !selectedItem && (query.length >= 2 || defaultOptions.length > 0) && (
+        <div className="section-card entering" style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          zIndex: 50,
           marginTop: '4px',
           maxHeight: '300px',
           overflowY: 'auto',
@@ -184,14 +209,14 @@ export function SearchableAutocomplete<T extends { id: string }>({
                 </li>
               )}
               {results.map(item => (
-                <li 
-                  key={item.id} 
+                <li
+                  key={item.id}
                   className="interactive-list-item"
-                  style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--color-border)' }} 
+                  style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--color-border)' }}
                   onClick={() => handleSelect(item)}
                 >
                   <div className="font-medium text-primary">
-                    {highlightMatch(labelKey(item), query)}
+                    {highlightMatch(labelKeyRef.current(item), query)}
                   </div>
                   {subLabelKey && subLabelKey(item) && (
                     <div className="text-secondary" style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>
@@ -207,9 +232,9 @@ export function SearchableAutocomplete<T extends { id: string }>({
                 No results found for "{query}".
               </p>
               {allowCreate && onCreateNew && (
-                <button 
-                  type="button" 
-                  className="button secondary small" 
+                <button
+                  type="button"
+                  className="button secondary small"
                   onClick={() => {
                     setIsOpen(false);
                     onCreateNew(query);

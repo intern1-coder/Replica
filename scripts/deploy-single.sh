@@ -13,11 +13,20 @@ log "Starting single-container deploy"
 echo "reverse_proxy 127.0.0.1:3000" > "$UPSTREAM_FILE"
 
 cd /app/backend
-log "Building and starting backend (docker-compose.yml)..."
-docker compose up -d --build
+log "Building backend image (docker-compose.yml)..."
+docker compose build
 
+# Migrate BEFORE the new code starts serving — `docker compose up -d --build`
+# used to build+start in one step, then migrate after, leaving a window
+# where the new code was already handling requests against the pre-migration
+# schema. The still-running old container keeps serving traffic during the
+# build+migrate steps below; `up -d` only swaps it out once migrations
+# succeed.
 log "Running database migrations..."
 docker compose run --rm app npx prisma migrate deploy
+
+log "Starting backend..."
+docker compose up -d
 
 if [ -x /app/scripts/docker-cleanup.sh ]; then
   log "Running post-deploy Docker cleanup..."
@@ -32,7 +41,12 @@ npm ci
 npm run build
 
 log "Reloading Caddy..."
-sudo caddy reload --config /app/Caddyfile
+# Must go through systemd, not a bare `caddy reload` — {$DOMAIN} substitution
+# happens in the invoking process's own environment, and a direct call has
+# none (sudo strips it too). `systemctl reload` inherits the unit's
+# EnvironmentFile=/etc/caddy/env (see docs/DEPLOY.md §10), which a bare
+# `sudo caddy reload` bypasses entirely.
+sudo systemctl reload caddy
 
 log "Verifying health..."
 curl -sf http://127.0.0.1:3000/api/health > /dev/null

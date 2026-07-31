@@ -240,3 +240,69 @@ Bootstrap complete.
 ```
 
 See also: `docs/DEPLOY.md` §6, `backend/.env.example`, `backend/Dockerfile`.
+
+---
+
+## 12. Two “main” branches caused duplicate PRs and confused CI
+
+**Where it happened:** GitHub repo setup, July 2026 (through PR #17)
+
+**What went wrong:**
+
+1. **GitHub default branch was `feature/pdf-cleanups-engineers`** while production deploy, CI, and docs all used **`master`**. New PRs often targeted the wrong base; the same work was merged twice (e.g. PR #16 → `master`, then PR #17 “Master” → sync into `feature/pdf-cleanups-engineers`).
+
+2. **Long-lived feature branches were kept after merge** (`feature/super-admin-role`, `fix/unify-brand-icons`, etc.), cluttering the Branches page and suggesting open work when everything was already on `master`.
+
+3. **Looked like “2 pipelines for 1 change”.** CI on `pull_request` plus CI on `push` to `master` after merge is normal. The real waste was **two PRs** for the same feature because of the dual-branch habit.
+
+**Rules:**
+
+> - **One trunk:** `master` only. GitHub default branch = CI target = `git pull` on the server = deploy source. All three must match.
+> - **Short-lived branches:** `fix/…` or `feat/…` off `master` → **one PR into `master`** → merge → **delete the branch** (local + remote).
+> - **Never** open “sync `master` into feature/X” PRs. Never merge the same feature to two long-lived branches.
+> - Before creating a PR, confirm base branch is **`master`** (especially after changing the default branch in Settings).
+
+**Cleanup (one-time, after fixing default branch):**
+
+```bash
+git push origin --delete fix/unify-brand-icons feature/pwa-and-client-restore feature/super-admin-role feature/pdf-cleanups-engineers
+git checkout master && git pull && git fetch --prune
+```
+
+See also: `docs/CI.md` (branch workflow), `docs/DEPLOY.md` (ongoing deploy checklist), `.github/pull_request_template.md` (server commands shown on every new PR).
+
+---
+
+## 13. July 2026 session — UI/PDF fixes, repo cleanup, and deploy discipline
+
+**Where it happened:** Local dev + GitHub, July 2026 (PR #18, #19)
+
+### What we built (PR #18)
+
+| Area | Fix |
+|------|-----|
+| Property autocomplete | Stopped duplicate `/clients` / `/properties` requests (unstable `labelKey` in effect deps) |
+| Contractor dropdown | Dark-mode react-select theming (`reactSelectTheme.ts`) |
+| PDF footers | Removed inline footer from templates; Puppeteer footer only (one per page) |
+| PDF speed | Reuse Chromium browser, cache templates, parallel image fetch |
+| Auto logout | Only clear session on **401**; retry transient `/auth/me` failures |
+| Test data reset | `scripts/reset-test-data.ts` — wipes operational data, keeps users/settings |
+| Docker | `JWT_EXPIRES_IN` passed through `docker-compose.yml` |
+
+### What we fixed (repo / process)
+
+| Mistake | Fix |
+|---------|-----|
+| GitHub default branch was `feature/pdf-cleanups-engineers`, deploy used `master` | Changed default branch to **`master`** |
+| Same feature merged via two PRs (#16 then #17 “Master” sync) | **One PR → master only**; deleted stale remote branches |
+| Merged branches left on GitHub (confusing Branches page) | `git push origin --delete` for old feature/fix branches |
+| No server commands visible at PR time | Added `.github/pull_request_template.md` with copy-paste deploy block |
+| Deploy checklist said `git pull origin <branch>` | Fixed to **`git pull origin master`** always |
+
+### Rules
+
+> - **Merging a PR does not deploy production.** After every merge to `master`, SSH to the server and run the deploy block (in the PR template or `docs/DEPLOY.md`).
+> - **CI green ≠ deployed.** GitHub Actions tests the code; the EC2 box only updates when you `git pull` + rebuild there.
+> - **Delete the PR branch** after merge (`fix/…` / `docs/…` should not accumulate on GitHub).
+
+See also: PR #18, PR #19, `docs/CI.md`, `.github/pull_request_template.md`.

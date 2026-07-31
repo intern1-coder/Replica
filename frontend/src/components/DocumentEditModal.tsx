@@ -61,9 +61,18 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
     // lightweight; they are re-attached from initialSnapshot on save.
     delete clean.diagnosticImages;
     delete clean.completionImages;
-    // Boolean flag set at generation time — not editable here (regenerate the
-    // report from the job page to change it).
+    // Boolean/id flags set at generation time — not editable here (regenerate
+    // the report from the job page to change them). The renderer below has no
+    // checkbox input, so leaving these in would render each as a plain text
+    // input and save it back as a string, corrupting the regenerated PDF.
     delete clean.includeWorkLogs;
+    delete clean.includeDiagnosticImages;
+    delete clean.includeHours;
+    delete clean.includeRates;
+    delete clean.engineerId;
+    delete clean.hoursColSpan;
+    // The Job Sheet always states the job was AUTHORISED — it documents that
+    // fact, not the job's current pipeline stage — so it is never editable.
     if (isJobSheet) clean.status = 'AUTHORISED';
     return clean;
   });
@@ -89,6 +98,11 @@ export function DocumentEditModal({ documentId, documentType, initialSnapshot, o
       if (initialSnapshot.diagnosticImages) payload.diagnosticImages = initialSnapshot.diagnosticImages;
       if (initialSnapshot.completionImages) payload.completionImages = initialSnapshot.completionImages;
       if ('includeWorkLogs' in initialSnapshot) payload.includeWorkLogs = initialSnapshot.includeWorkLogs;
+      if ('includeDiagnosticImages' in initialSnapshot) payload.includeDiagnosticImages = initialSnapshot.includeDiagnosticImages;
+      if ('includeHours' in initialSnapshot) payload.includeHours = initialSnapshot.includeHours;
+      if ('includeRates' in initialSnapshot) payload.includeRates = initialSnapshot.includeRates;
+      if ('engineerId' in initialSnapshot) payload.engineerId = initialSnapshot.engineerId;
+      if ('hoursColSpan' in initialSnapshot) payload.hoursColSpan = initialSnapshot.hoursColSpan;
 
       await apiFetch(`/documents/${documentId}`, {
         method: 'PATCH',

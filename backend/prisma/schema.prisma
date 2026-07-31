@@ -162,6 +162,7 @@ model Client {
 model Property {
   id                 String    @id @default(uuid())
   address            String
+  postcode           String?
   normalizedAddress  String
   buildingGroupId    String?
 
@@ -327,6 +328,11 @@ model WorkLog {
   @@index([jobId])
   @@index([contractorId])
   @@index([workDate])
+  // Serve the job-sheet/summary "hours for this engineer on this job" filter
+  // and the engineer timesheet's "hours for this engineer in this date range"
+  // filter without a full scan of either single-column index above.
+  @@index([jobId, contractorId])
+  @@index([contractorId, workDate])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

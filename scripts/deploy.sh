@@ -6,6 +6,23 @@ ACTIVE_FILE="/app/scripts/.active"
 UPSTREAM_FILE="/app/active-upstream.caddy"
 HEALTH_TIMEOUT=30
 
+# `cd` into backend/ (not just `-f "$COMPOSE_FILE"`) so `docker compose` picks up
+# .env from its own project directory for ${GHCR_OWNER}/${POSTGRES_*} substitution
+# in docker-compose.prod.yml — mirrors deploy-single.sh. Also export the same
+# .env into this script's own shell so GHCR_OWNER below resolves instead of
+# tripping `set -u`. DATABASE_URL is deliberately NOT sourced from here: the
+# host .env's copy points at `localhost` (for local/dev use), which doesn't
+# resolve to Postgres from inside a container — the pg_dump step below reads
+# DATABASE_URL from the target container's own environment instead, where
+# docker-compose.prod.yml correctly points it at the `db` service.
+cd /app/backend
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 IMAGE_TAG="${1:-latest}"
 export IMAGE_TAG
 
@@ -31,9 +48,14 @@ docker compose -f "$COMPOSE_FILE" pull "app_${TARGET}"
 log "Taking pre-deploy database backup..."
 BACKUP_TAG="${IMAGE_TAG}-$(date '+%Y%m%d-%H%M%S')"
 BACKUP_FILE="/tmp/affinity_pre_deploy_${BACKUP_TAG}.sql.gz"
-# Run pg_dump from inside the active app container (has postgresql-client from Dockerfile)
+# Run pg_dump from inside the active app container (has postgresql-client from
+# Dockerfile), expanding $DATABASE_URL in the CONTAINER's own shell via `sh -c`
+# (single-quoted) — the container's env has the correct `db:5432` hostname per
+# docker-compose.prod.yml; the host's own DATABASE_URL (sourced above from
+# .env, if present) points at `localhost`, which isn't reachable from inside
+# the container's network namespace.
 docker compose -f "$COMPOSE_FILE" exec -T "app_${ACTIVE}" \
-  pg_dump "${DATABASE_URL}" | gzip > "$BACKUP_FILE" || {
+  sh -c 'pg_dump "$DATABASE_URL"' | gzip > "$BACKUP_FILE" || {
   log "WARNING: pre-deploy backup failed — aborting deploy"
   exit 1
 }
@@ -83,7 +105,12 @@ log "NODE_ENV=production confirmed"
 # ── Step 6: Flip Caddy traffic ─────────────────────────────────────────────────
 log "Flipping traffic to app_${TARGET} (port ${TARGET_PORT})..."
 echo "reverse_proxy 127.0.0.1:${TARGET_PORT}" > "$UPSTREAM_FILE"
-caddy reload --config /app/Caddyfile --force
+# Must go through systemd, not a bare `caddy reload` — {$DOMAIN} substitution
+# happens in the invoking process's own environment, which a direct call
+# doesn't have. `systemctl reload` inherits the unit's
+# EnvironmentFile=/etc/caddy/env (see docs/DEPLOY.md §10) and already runs
+# with --force per the unit's ExecReload override.
+sudo systemctl reload caddy
 log "Traffic now routed to app_${TARGET}"
 
 # ── Step 7: Stop the old container ────────────────────────────────────────────

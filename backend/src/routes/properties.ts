@@ -16,6 +16,7 @@ router.use(requireAuth);
 
 router.get(
   '/',
+  requirePermission('properties:view'),
   [
     query('q').optional().isString().trim(),
     query('clientId').optional().isUUID(),
@@ -68,6 +69,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermission('properties:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -104,6 +106,7 @@ router.post(
   [
     body('address').isString().trim().notEmpty().isLength({ max: 500 })
       .withMessage('address is required.'),
+    body('postcode').optional({ nullable: true }).isString().trim().isLength({ max: 16 }),
     body('buildingGroupId').optional({ nullable: true }).isString().trim(),
     body('parentId').optional({ nullable: true }).isUUID(),
     body('currentClientId').optional({ nullable: true }).isUUID(),
@@ -115,6 +118,7 @@ router.post(
     try {
       const {
         address,
+        postcode,
         buildingGroupId,
         parentId,
         currentClientId,
@@ -122,6 +126,7 @@ router.post(
         keyLocation,
       } = req.body as {
         address: string;
+        postcode?: string | null;
         buildingGroupId?: string | null;
         parentId?: string | null;
         currentClientId?: string | null;
@@ -132,6 +137,7 @@ router.post(
       const property = await prisma.property.create({
         data: {
           address,
+          postcode,
           normalizedAddress: normalizeAddress(address), // pre-computed for search
           buildingGroupId,
           parentId,
@@ -169,6 +175,7 @@ router.patch(
   [
     param('id').isUUID(),
     body('address').optional().isString().trim().notEmpty().isLength({ max: 500 }),
+    body('postcode').optional({ nullable: true }).isString().trim().isLength({ max: 16 }),
     body('buildingGroupId').optional({ nullable: true }).isString().trim(),
     body('parentId').optional({ nullable: true }).isUUID(),
     body('currentClientId').optional({ nullable: true }).isUUID(),
@@ -178,8 +185,15 @@ router.patch(
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      // Same include as `updated` below — otherwise the audit diff shows
+      // these relations as freshly "added" on every edit, even when unchanged.
       const existing = await prisma.property.findFirst({
         where: { id: req.params['id'], deletedAt: null },
+        include: {
+          currentClient: { select: { id: true, name: true } },
+          parent: { select: { id: true, address: true } },
+          tenants: { select: { id: true, name: true } }
+        },
       });
 
       if (!existing) {
@@ -189,6 +203,7 @@ router.patch(
 
       const {
         address,
+        postcode,
         buildingGroupId,
         parentId,
         currentClientId,
@@ -196,6 +211,7 @@ router.patch(
         keyLocation,
       } = req.body as {
         address?: string;
+        postcode?: string | null;
         buildingGroupId?: string | null;
         parentId?: string | null;
         currentClientId?: string | null;
@@ -207,6 +223,7 @@ router.patch(
         where: { id: req.params['id'] },
         data: {
           address,
+          postcode,
           // Re-normalise if address changed
           ...(address !== undefined ? { normalizedAddress: normalizeAddress(address) } : {}),
           buildingGroupId,
@@ -243,6 +260,7 @@ router.patch(
 
 router.get(
   '/:id/related',
+  requirePermission('properties:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -336,6 +354,7 @@ router.delete(
 
 router.get(
   '/:id/tenant-history',
+  requirePermission('properties:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

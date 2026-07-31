@@ -28,10 +28,16 @@ describe('Global rate limiter', () => {
   let app: Express;
   const previousNodeEnv = process.env.NODE_ENV;
 
+  const previousJwtSecret = process.env.JWT_SECRET;
+
   beforeAll(async () => {
     process.env.NODE_ENV = 'production';
     process.env.FRONTEND_URL = 'https://app.example.com';
     process.env.APP_URL = 'https://app.example.com';
+    // config/index.ts rejects short/placeholder secrets when env=production
+    // — setup.ts's 'test-secret' is intentionally short for every other
+    // (non-production-mode) test, so this suite needs its own.
+    process.env.JWT_SECRET = 'test-only-production-mode-secret-1234567890';
     jest.resetModules();
     const mod = await import('../app');
     app = mod.default;
@@ -39,6 +45,7 @@ describe('Global rate limiter', () => {
 
   afterAll(() => {
     process.env.NODE_ENV = previousNodeEnv;
+    process.env.JWT_SECRET = previousJwtSecret;
     delete process.env.FRONTEND_URL;
     delete process.env.APP_URL;
   });

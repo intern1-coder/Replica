@@ -1,11 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, param, query } from 'express-validator';
-import { Role } from '@prisma/client';
+import { Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { validate } from '../middleware/errorHandler';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { fuzzySearch } from '../services/searchService';
 import { getPaginationParams, paginate } from '../lib/utils';
+import { logAudit } from '../services/auditService';
 
 const router = Router();
 router.use(requireAuth);
@@ -15,6 +16,7 @@ router.use(requireAuth);
 
 router.get(
   '/',
+  requirePermission('tenants:view'),
   [
     query('q').optional().isString().trim(),
     query('page').optional().isInt({ min: 1 }).toInt(),
@@ -53,6 +55,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermission('tenants:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -126,6 +129,14 @@ router.post(
         },
       });
 
+      await logAudit({
+        entityType: 'Tenant',
+        entityId: tenant.id,
+        action: AuditAction.CREATE,
+        performedById: req.user!.id,
+        after: tenant as any,
+      });
+
       res.status(201).json(tenant);
     } catch (err) {
       next(err);
@@ -138,6 +149,7 @@ router.post(
 
 router.get(
   '/:id/related',
+  requirePermission('tenants:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -244,6 +256,15 @@ router.patch(
         },
       });
 
+      await logAudit({
+        entityType: 'Tenant',
+        entityId: updated.id,
+        action: AuditAction.UPDATE,
+        performedById: req.user!.id,
+        before: existing as any,
+        after: updated as any,
+      });
+
       res.json(updated);
     } catch (err) {
       next(err);
@@ -272,6 +293,14 @@ router.delete(
       await prisma.tenant.update({
         where: { id: req.params['id'] },
         data: { deletedAt: new Date() },
+      });
+
+      await logAudit({
+        entityType: 'Tenant',
+        entityId: existing.id,
+        action: AuditAction.DELETE,
+        performedById: req.user!.id,
+        before: existing as any,
       });
 
       res.status(204).send();

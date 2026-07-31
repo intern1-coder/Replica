@@ -2,13 +2,14 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, param, query } from 'express-validator';
 import { JobStatus, Role, AuditAction } from '@prisma/client';
 import prisma from '../lib/prisma';
-import { validate } from '../middleware/errorHandler';
+import { validate, OptimisticLockError } from '../middleware/errorHandler';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { applyTransition, getAllowedTransitions } from '../services/jobStateMachine';
 import { getPaginationParams, paginate, formatJobNumber } from '../lib/utils';
 import { logAudit } from '../services/auditService';
 import logger from '../lib/logger';
 import { emitToAll, emitToJob } from '../lib/socket';
+import { ACTIVE_ASSIGNED_CONTRACTORS } from '../lib/prismaSelects';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,7 +29,7 @@ const JOB_LIST_SELECT = {
   tenantSnapshotName: true,
   tenantSnapshotPhone: true,
   quotedValue: true,
-  assignedContractors: { select: { id: true, name: true } },
+  assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
   scheduledDate: true,
   completedAt: true,
   createdAt: true,
@@ -46,7 +47,9 @@ function withJobNumber<T extends { sequence: number }>(job: T) {
 
 router.get(
   '/',
+  requirePermission('jobs:view'),
   [
+    query('tab').optional().isIn(['active', 'completed', 'cancelled', 'archived']),
     query('status').optional().isIn(Object.values(JobStatus)),
     query('clientId').optional().isUUID(),
     query('propertyId').optional().isUUID(),
@@ -54,13 +57,19 @@ router.get(
     query('search').optional().isString().trim(),
     query('startDate').optional().isISO8601().toDate(),
     query('endDate').optional().isISO8601().toDate(),
+    // Filters on Job.scheduledDate (the booked work date) — distinct from
+    // startDate/endDate above, which filter createdAt. Used by the Logistics
+    // tab's "Upcoming" view to find jobs booked in a future window.
+    query('scheduledFrom').optional().isISO8601().toDate(),
+    query('scheduledTo').optional().isISO8601().toDate(),
     query('page').optional().isInt({ min: 1 }).toInt(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { status, clientId, propertyId, assignedContractorId, search, startDate, endDate } = req.query as {
+      const { tab, status, clientId, propertyId, assignedContractorId, search, startDate, endDate, scheduledFrom, scheduledTo } = req.query as {
+        tab?: 'active' | 'completed' | 'cancelled' | 'archived';
         status?: JobStatus;
         clientId?: string;
         propertyId?: string;
@@ -68,14 +77,43 @@ router.get(
         search?: string;
         startDate?: Date;
         endDate?: Date;
+        scheduledFrom?: Date;
+        scheduledTo?: Date;
       };
 
       const { page, limit, skip } = getPaginationParams(
         req.query as Record<string, string | undefined>
       );
 
-      const where: any = { deletedAt: null };
-      if (status) where.status = status;
+      // "archived" (soft-deleted jobs) is only visible to members who can hard
+      // delete — everyone else silently falls back to the Active tab, mirroring
+      // clients.ts's includeInactive gating.
+      const effectiveTab = tab === 'archived' && !req.user!.can('jobs:delete') ? 'active' : (tab || 'active');
+
+      const where: any = {};
+      switch (effectiveTab) {
+        case 'completed':
+          where.deletedAt = null;
+          where.status = JobStatus.COMPLETED;
+          break;
+        case 'cancelled':
+          where.deletedAt = null;
+          where.status = JobStatus.CANCELLED;
+          break;
+        case 'archived':
+          where.deletedAt = { not: null };
+          break;
+        case 'active':
+        default:
+          where.deletedAt = null;
+          where.status = { notIn: [JobStatus.COMPLETED, JobStatus.CANCELLED] };
+          break;
+      }
+
+      // `status` is a secondary refinement, only meaningful within the Active
+      // tab — applying it under Completed/Cancelled/Archived would just
+      // contradict the tab's own status/deletedAt clause.
+      if (status && effectiveTab === 'active') where.status = status;
       if (clientId) where.clientId = clientId;
       if (propertyId) where.propertyId = propertyId;
       if (assignedContractorId) {
@@ -109,6 +147,16 @@ router.get(
         }
       }
 
+      if (scheduledFrom || scheduledTo) {
+        where.scheduledDate = { not: null };
+        if (scheduledFrom) where.scheduledDate.gte = scheduledFrom;
+        if (scheduledTo) {
+          const end = new Date(scheduledTo);
+          end.setHours(23, 59, 59, 999);
+          where.scheduledDate.lte = end;
+        }
+      }
+
       const [jobs, total] = await prisma.$transaction([
         prisma.job.findMany({
           where,
@@ -131,6 +179,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermission('jobs:view'),
   [param('id').isUUID()],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -140,8 +189,9 @@ router.get(
         include: {
           property: { select: { id: true, address: true, accessNotes: true, keyLocation: true } },
           client: { select: { id: true, name: true, email: true, phone: true } },
-          assignedContractors: { select: { id: true, name: true } },
-          generatedDocuments: true,
+          tenant: { select: { id: true, name: true, phone: true, email: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
+          generatedDocuments: { orderBy: { createdAt: 'desc' } },
         },
       });
 
@@ -261,7 +311,7 @@ router.post(
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
           tenant: { select: { id: true, name: true, phone: true } },
-          assignedContractors: { select: { id: true, name: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
         },
       });
 
@@ -290,12 +340,18 @@ router.post(
 // Updates mutable fields on a job. Does NOT handle status changes — use
 // PATCH /api/jobs/:id/status for that (Rules.md: all status changes through state machine).
 // Frozen fields (tenantSnapshot*, status, version) cannot be changed here.
+//
+// Requires the caller's last-known `version` for optimistic locking, the same
+// pattern PATCH /:id/status already uses via jobStateMachine.ts — without
+// this, two PMs editing the same job's description/materials/quotedValue at
+// once silently overwrite each other with no warning (Rules.md).
 
 router.patch(
   '/:id',
   requirePermission('jobs:edit'),
   [
     param('id').isUUID(),
+    body('version').isInt({ min: 0 }).withMessage('version is required for optimistic locking.').toInt(),
     body('description').optional({ nullable: true }).isString().trim(),
     body('diagnosticNotes').optional({ nullable: true }).isString().trim(),
     body('completionNotes').optional({ nullable: true }).isString().trim(),
@@ -304,6 +360,11 @@ router.patch(
     body('assignedContractorIds').optional({ nullable: true }).isArray(),
     body('assignedContractorIds.*').optional().isUUID(),
     body('scheduledDate').optional({ nullable: true }).isISO8601().toDate(),
+    // Snapshot fields are normally frozen at creation and never recomputed
+    // (Rules.md) — this scoped exception lets an operator refresh this one
+    // job's copy after correcting a typo on the underlying Tenant record.
+    body('tenantSnapshotName').optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+    body('tenantSnapshotPhone').optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
   ],
   validate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -313,7 +374,7 @@ router.patch(
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
-          assignedContractors: { select: { id: true, name: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
         },
       });
 
@@ -322,33 +383,121 @@ router.patch(
         return;
       }
 
-      const { description, diagnosticNotes, completionNotes, materials, quotedValue, assignedContractorIds, scheduledDate } =
-        req.body as {
-          description?: string | null;
-          diagnosticNotes?: string | null;
-          completionNotes?: string | null;
-          materials?: string | null;
-          quotedValue?: string | null;
-          assignedContractorIds?: string[] | null;
-          scheduledDate?: Date | null;
-        };
+      const {
+        version,
+        description,
+        diagnosticNotes,
+        completionNotes,
+        materials,
+        quotedValue,
+        assignedContractorIds,
+        scheduledDate,
+        tenantSnapshotName,
+        tenantSnapshotPhone,
+      } = req.body as {
+        version: number;
+        description?: string | null;
+        diagnosticNotes?: string | null;
+        completionNotes?: string | null;
+        materials?: string | null;
+        quotedValue?: string | null;
+        assignedContractorIds?: string[] | null;
+        scheduledDate?: Date | null;
+        tenantSnapshotName?: string | null;
+        tenantSnapshotPhone?: string | null;
+      };
 
-      const updated = await prisma.job.update({
-        where: { id: req.params['id'] },
-        data: {
-          description,
-          diagnosticNotes,
-          completionNotes,
-          materials,
-          quotedValue: quotedValue !== undefined ? quotedValue : undefined,
-          assignedContractors: assignedContractorIds ? { set: assignedContractorIds.map((id) => ({ id })) } : undefined,
-          scheduledDate,
-        },
-        include: {
-          property: { select: { id: true, address: true } },
-          client: { select: { id: true, name: true } },
-          assignedContractors: { select: { id: true, name: true } },
-        },
+      // assignedContractorIds is diffed (connect/disconnect) rather than
+      // {set:} so concurrent edits from two sessions are additive, not
+      // last-write-wins. Unassigning an engineer who has hours on this job
+      // is blocked — the assignment list and the hours must never drift apart.
+      let assignedContractorsUpdate: { connect: { id: string }[]; disconnect: { id: string }[] } | undefined;
+
+      if (assignedContractorIds) {
+        const nextIds = [...new Set(assignedContractorIds)];
+        const existingIds = existing.assignedContractors.map((c) => c.id);
+        const added = nextIds.filter((id) => !existingIds.includes(id));
+        const removed = existingIds.filter((id) => !nextIds.includes(id));
+
+        if (removed.length > 0) {
+          const blocked = await prisma.workLog.groupBy({
+            by: ['contractorId'],
+            where: { jobId: existing.id, deletedAt: null, contractorId: { in: removed } },
+          });
+          if (blocked.length > 0) {
+            const blockedIds = new Set(blocked.map((b) => b.contractorId));
+            const blockedNames = existing.assignedContractors
+              .filter((c) => blockedIds.has(c.id))
+              .map((c) => c.name);
+            res.status(422).json({
+              error: 'Unprocessable Entity',
+              message: `Cannot unassign ${blockedNames.join(', ')} — they have logged hours on this job.`,
+            });
+            return;
+          }
+        }
+
+        if (added.length > 0) {
+          const liveCount = await prisma.engineer.count({ where: { id: { in: added }, deletedAt: null } });
+          if (liveCount !== added.length) {
+            res.status(422).json({ error: 'Unprocessable Entity', message: 'One or more selected engineers could not be found.' });
+            return;
+          }
+        }
+
+        assignedContractorsUpdate = {
+          connect: added.map((id) => ({ id })),
+          disconnect: removed.map((id) => ({ id })),
+        };
+      }
+
+      const jobId = req.params['id'];
+
+      // updateMany (not update) so the WHERE clause can include `version` —
+      // this is the atomic compare-and-swap: it only matches (and only then
+      // increments version) if the caller's version is still current. Relation
+      // writes (connect/disconnect) aren't supported on updateMany, so those
+      // apply as a second write inside the same transaction, gated on the
+      // first one having actually matched a row.
+      const updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.job.updateMany({
+          where: { id: jobId, version, deletedAt: null },
+          data: {
+            description,
+            diagnosticNotes,
+            completionNotes,
+            materials,
+            quotedValue: quotedValue !== undefined ? quotedValue : undefined,
+            scheduledDate,
+            tenantSnapshotName,
+            tenantSnapshotPhone,
+            version: { increment: 1 },
+          },
+        });
+
+        if (result.count === 0) {
+          const lockErr = Object.assign(new Error('Concurrent modification detected.'), {
+            type: 'OPTIMISTIC_LOCK_CONFLICT' as const,
+            id: jobId,
+          }) as OptimisticLockError;
+          throw lockErr;
+        }
+
+        if (assignedContractorsUpdate) {
+          await tx.job.update({
+            where: { id: jobId },
+            data: { assignedContractors: assignedContractorsUpdate },
+          });
+        }
+
+        return tx.job.findUniqueOrThrow({
+          where: { id: jobId },
+          include: {
+            property: { select: { id: true, address: true } },
+            client: { select: { id: true, name: true } },
+            assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
+          },
+        });
       });
 
       await logAudit({
@@ -372,6 +521,8 @@ router.patch(
           quotedValue: updated.quotedValue,
           scheduledDate: updated.scheduledDate,
           assignedContractors: updated.assignedContractors,
+          tenantSnapshotName: updated.tenantSnapshotName,
+          tenantSnapshotPhone: updated.tenantSnapshotPhone,
           version: updated.version,
           updatedAt: updated.updatedAt,
         },
@@ -428,7 +579,7 @@ router.patch(
         include: {
           property: { select: { id: true, address: true } },
           client: { select: { id: true, name: true } },
-          assignedContractors: { select: { id: true, name: true } },
+          assignedContractors: ACTIVE_ASSIGNED_CONTRACTORS,
         },
       });
 
@@ -494,6 +645,75 @@ router.delete(
       logger.info('Job deleted', { jobId: req.params['id'], deletedById: req.user!.id });
       emitToAll('job:deleted', { jobId: req.params['id'], ts: new Date().toISOString() });
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── PATCH /api/jobs/:id/restore ─────────────────────────────────────────────────
+// Reactivates a soft-deleted (archived) job. Same permission as deletion.
+//
+// A job archived while CANCELLED ("Not Proceeding") is ambiguous on restore:
+// the caller may want it back in Not Proceeding, or reactivated into the
+// active pipeline. `reactivate: true` requests the latter — we reconstruct
+// the status it held right before cancellation from the audit trail (the
+// only record of it, since the job row itself only keeps the current
+// status), falling back to TO_BE_CHECKED if that entry can't be found.
+
+router.patch(
+  '/:id/restore',
+  requirePermission('jobs:delete'),
+  [param('id').isUUID(), body('reactivate').optional().isBoolean().toBoolean()],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const existing = await prisma.job.findFirst({
+        where: { id: req.params['id'], deletedAt: { not: null } },
+      });
+
+      if (!existing) {
+        res.status(404).json({ error: 'Not Found', message: 'Archived job not found.' });
+        return;
+      }
+
+      const reactivate = req.body.reactivate === true;
+      const data: { deletedAt: null; status?: JobStatus } = { deletedAt: null };
+
+      if (reactivate && existing.status === JobStatus.CANCELLED) {
+        const lastCancellation = await prisma.auditLog.findFirst({
+          where: {
+            entityType: 'Job',
+            entityId: existing.id,
+            action: AuditAction.UPDATE,
+            after: { path: ['status'], equals: JobStatus.CANCELLED },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        const priorStatus = (lastCancellation?.before as { status?: string } | null)?.status;
+        data.status = priorStatus && priorStatus in JobStatus
+          ? (priorStatus as JobStatus)
+          : JobStatus.TO_BE_CHECKED;
+      }
+
+      const updated = await prisma.job.update({
+        where: { id: req.params['id'] },
+        data,
+      });
+
+      await logAudit({
+        entityType: 'Job',
+        entityId: updated.id,
+        action: AuditAction.UPDATE,
+        performedById: req.user!.id,
+        before: existing as any,
+        after: updated as any,
+        jobId: updated.id,
+      });
+
+      logger.info('Job restored', { jobId: updated.id, restoredById: req.user!.id, reactivated: reactivate, status: updated.status });
+      emitToAll('job:created', { jobId: updated.id, ts: new Date().toISOString() });
+      res.json(updated);
     } catch (err) {
       next(err);
     }
