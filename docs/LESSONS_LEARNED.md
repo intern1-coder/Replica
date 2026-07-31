@@ -306,3 +306,33 @@ See also: `docs/CI.md` (branch workflow), `docs/DEPLOY.md` (ongoing deploy check
 > - **Delete the PR branch** after merge (`fix/…` / `docs/…` should not accumulate on GitHub).
 
 See also: PR #18, PR #19, `docs/CI.md`, `.github/pull_request_template.md`.
+
+---
+
+## 14. July 2026 — production audit, git history rewrite, and a scripts/src Docker gap
+
+**Where it happened:** Production readiness audit + fixes, and a live data-wipe request, July 2026.
+
+### What we built (worth reusing)
+
+| Pattern | Where |
+|---------|-------|
+| Destructive scripts default to a dry run and require an explicit confirm token | `scripts/reset-test-data.ts` — prints row counts and changes nothing unless `RESET_CONFIRM=DELETE_ALL_DATA` is set |
+| Storage cleanup happens *after* the DB transaction commits, best-effort, with failures logged and counted | same script — DB-first ordering means a re-run can't make things worse |
+| Verify Docker/permission changes against the **real, built artifact**, not static review | `.dockerignore` and this session's `src/` fix were both confirmed with an actual `docker build` + a module-resolution check inside the built image, not just reading the Dockerfile |
+| Rewrite git history in an **isolated mirror clone**, verify fully, then push | `git clone --mirror` → `git filter-repo` → `git log --all` sanity check → push, instead of touching the working repo's history directly |
+| Optimistic-lock / permission-gate changes get their own test file before being called done | `jobs.assignment.test.ts`, `permissionGating.test.ts`, `resolveAuthenticatedUser.test.ts` |
+
+### What went wrong
+
+1. **`reset-test-data.ts` imported from `src/services/storageService`, but the production image never copied `src/`.** The Dockerfile's production stage only copied `dist/`, `prisma/`, `scripts/`, `templates/`, `assets/` (per lesson #11). `bootstrap-users.ts` only needs `@prisma/client`, so it never hit this. `reset-test-data.ts` and `seed-dummy-data.ts` both reach into `src/` (storageService, utils) — this wasn't caught by `tsc`/`jest` (both run against the full local source tree) or by the earlier `.dockerignore` verification (which checked what was *excluded*, not what a *new* script needed *included*). It only surfaced when the script was actually run inside the production container: `MODULE_NOT_FOUND: /app/scripts/../src/services/storageService`.
+
+2. **Rewriting git history left the EC2 server's clone silently stale.** After `git filter-repo` + force-push, the server still had the old, abandoned commit history. `git pull` there didn't loudly fail — it appeared to run, but the frontend/backend never actually changed, which looked like "the deploy didn't work" rather than "the pull didn't update anything." The fix (`git fetch && git reset --hard origin/master`) was already documented in `docs/PRODUCTION_GAPS.md` and project memory, but it still cost a debugging round-trip because the symptom (no visible changes) didn't point directly at the cause (stale/diverged history).
+
+**Rules:**
+
+> - **Any script under `backend/scripts/` that imports from `src/` needs `src/` in the production Dockerfile**, not just the script itself (extends lesson #11's rule, which only covered `scripts/` itself). Check a new script's imports against what the production stage actually copies before considering it deploy-ready — `tsc --noEmit` and `jest` both run against the full source tree locally and will NOT catch this.
+> - **After any git history rewrite (`filter-repo`, etc.), every existing clone is stale until manually reconciled** — a plain `git pull` on an old clone can silently no-op or refuse rather than erroring in an obviously diagnosable way. If a deploy "did nothing" right after a history rewrite, check for diverged history before anything else.
+> - **Verify infra changes (Docker, permissions, scripts) by actually running them**, not by reading the config — a real `docker build` + running the built artifact catches gaps that reading the Dockerfile does not.
+
+See also: `docs/PRODUCTION_GAPS.md` (H2/H4/H5/H6/H7/H8), `backend/Dockerfile`, `backend/scripts/reset-test-data.ts`.
