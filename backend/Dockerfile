@@ -49,6 +49,11 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/templates ./templates
 COPY --from=builder /app/assets ./assets
+# scripts/ runs via `tsx` against TS source directly (same as local dev), not
+# the compiled dist/ output — any script importing from src/ (e.g.
+# reset-test-data.ts's storageService, seed-dummy-data.ts's utils) needs the
+# actual source tree present, not just its compiled JS.
+COPY --from=builder /app/src ./src
 
 # Expose port
 EXPOSE 3000
