@@ -336,3 +336,5 @@ See also: PR #18, PR #19, `docs/CI.md`, `.github/pull_request_template.md`.
 > - **Verify infra changes (Docker, permissions, scripts) by actually running them**, not by reading the config — a real `docker build` + running the built artifact catches gaps that reading the Dockerfile does not.
 
 See also: `docs/PRODUCTION_GAPS.md` (H2/H4/H5/H6/H7/H8), `backend/Dockerfile`, `backend/scripts/reset-test-data.ts`.
+
+**Outcome:** after the `src/` fix was deployed, the dry run printed correct, sane counts (8 jobs, 10 clients, 8 properties, 3 tenants, 10 engineers, 29 media files, 15 generated documents), and the real wipe (`RESET_CONFIRM=DELETE_ALL_DATA`) completed successfully in production — 4 users and 1 setting confirmed preserved untouched. The dry-run-first design did exactly its job: it surfaced the `MODULE_NOT_FOUND` bug on a **read-only** run, before any destructive command was ever executed against real data.
