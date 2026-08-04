@@ -1,11 +1,9 @@
 /**
  * Tests for the global rate limiter (express-rate-limit).
  *
- * The global limit is 100 requests per IP per 15-minute window.
- * supertest sends requests from 127.0.0.1, so all requests in this
- * suite share the same IP counter.
- *
- * Requires: supertest (`npm install --save-dev supertest @types/supertest`)
+ * Production global limit is 500 requests per user (or IP when unauthenticated)
+ * per 15-minute window. supertest sends requests from 127.0.0.1, so
+ * unauthenticated requests in this suite share the same IP counter.
  *
  * NOTE: express-rate-limit uses an in-memory store by default that is
  * shared across the entire process lifetime.  Each test suite gets a
@@ -15,7 +13,9 @@
  */
 
 import type { Express } from 'express';
+import jwt from 'jsonwebtoken';
 import request from 'supertest';
+import { GLOBAL_RATE_LIMIT_MAX } from '../middleware/rateLimiter';
 
 jest.mock('../lib/prisma', () => ({
   __esModule: true,
@@ -50,18 +50,17 @@ describe('Global rate limiter', () => {
     delete process.env.APP_URL;
   });
 
-  /**
-   * Hit the lightweight /api/health endpoint 101 times.
-   * The first 100 must succeed (2xx or any non-429).
-   * The 101st must be rejected with 429.
-   *
-   * We use a single loop rather than Promise.all to guarantee ordering
-   * and to avoid hammering the event loop with 101 concurrent requests.
-   */
-  it('returns 429 on the 101st request within the window', async () => {
-    const MAX = 100;
+  function makeToken(userId: string): string {
+    return jwt.sign({ userId, tokenVersion: 0 }, process.env.JWT_SECRET!);
+  }
 
-    for (let i = 0; i < MAX; i++) {
+  /**
+   * Hit the lightweight /api/health endpoint up to the global max.
+   * The first MAX must succeed (2xx or any non-429).
+   * The next request must be rejected with 429.
+   */
+  it(`returns 429 after ${GLOBAL_RATE_LIMIT_MAX} unauthenticated requests within the window`, async () => {
+    for (let i = 0; i < GLOBAL_RATE_LIMIT_MAX; i++) {
       const res = await request(app).get('/api/health');
       expect(res.status).not.toBe(429);
     }
@@ -69,5 +68,28 @@ describe('Global rate limiter', () => {
     const limited = await request(app).get('/api/health');
     expect(limited.status).toBe(429);
     expect(limited.body).toMatchObject({ error: 'Too Many Requests' });
-  }, 30_000);
+  }, 120_000);
+
+  /**
+   * Two authenticated users on the same IP each get an independent bucket.
+   * Under the old 100/IP limit both would fail after ~100 combined requests;
+   * with per-user keys each can exceed the old ceiling without 429.
+   */
+  it('gives independent buckets per authenticated user on the same IP', async () => {
+    const OVER_OLD_LIMIT = 101;
+    const tokenA = makeToken('rate-test-user-a');
+    const tokenB = makeToken('rate-test-user-b');
+
+    for (let i = 0; i < OVER_OLD_LIMIT; i++) {
+      const resA = await request(app)
+        .get('/api/health')
+        .set('Authorization', `Bearer ${tokenA}`);
+      expect(resA.status).not.toBe(429);
+
+      const resB = await request(app)
+        .get('/api/health')
+        .set('Authorization', `Bearer ${tokenB}`);
+      expect(resB.status).not.toBe(429);
+    }
+  }, 120_000);
 });
