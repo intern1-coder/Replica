@@ -80,10 +80,15 @@ app.use((req, res, next) => {
 // ── Rate limiters ──────────────────────────────────────────────────────────────
 // Search routes get a dedicated higher-ceiling limiter so search-as-you-type
 // doesn't eat into the global budget for mutations and other API calls.
-app.use('/api/clients', searchLimiter);
-app.use('/api/properties', searchLimiter);
-app.use('/api/tenants', searchLimiter);
-app.use('/api/jobs', searchLimiter);
+// Only GET list/autocomplete requests use the search limiter — mutations skip it.
+function applySearchLimiter(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (req.method === 'GET') return searchLimiter(req, res, next);
+  next();
+}
+app.use('/api/clients', applySearchLimiter);
+app.use('/api/properties', applySearchLimiter);
+app.use('/api/tenants', applySearchLimiter);
+app.use('/api/jobs', applySearchLimiter);
 // Media/document URL routes fan out one request per item on job open.
 app.use('/api/documents', mediaLimiter);
 app.use('/api/job-media', mediaLimiter);
