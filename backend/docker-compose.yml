@@ -17,7 +17,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       # connection_limit — Prisma defaults to (2 * vCPUs + 1) = 5 on this
       # 2-vCPU host, which PRODUCTION_HARDENING.md already diagnosed as
       # causing timeouts under normal load; explicit 15 matches
@@ -73,7 +73,8 @@ services:
     # Previously "5432:5432" (all interfaces) — internet-reachable, SG-mitigated
     # only.
     ports:
-      - "127.0.0.1:5432:5432"
+      # 5433 on host: 5432 is occupied by the local PostgreSQL on this dev machine
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s

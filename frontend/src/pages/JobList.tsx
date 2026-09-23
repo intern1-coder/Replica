@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { debounce, mergeById, type FetchOptions } from '../utils/refetch';
@@ -7,7 +7,7 @@ import type { Property } from './PropertyList';
 import { useAuth } from '../contexts/AuthContext';
 import { useReminders } from '../contexts/ReminderContext';
 import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness, Calendar, RotateCcw } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, type Variants } from 'motion/react';
 import { useToast } from '../contexts/ToastContext';
 
 export interface Job {
@@ -34,6 +34,21 @@ export interface Job {
 
 type JobTab = 'active' | 'completed' | 'cancelled' | 'archived';
 
+export interface JobCounts {
+  byStatus: Record<Job['status'], number>;
+  byTab: { active: number; completed: number; cancelled: number; archived: number };
+  stalled: Record<Job['status'], number>;
+  flow7d: Record<Job['status'], number>;
+  stalledDays: number;
+}
+
+const STATUS_CHIPS: { key: string; label: string; status: Job['status'] }[] = [
+  { key: 'TO_BE_CHECKED', label: 'To Be Checked', status: 'TO_BE_CHECKED' },
+  { key: 'CHECKED', label: 'Checked', status: 'CHECKED' },
+  { key: 'QUOTED', label: 'Quoted', status: 'QUOTED' },
+  { key: 'AUTHORISED', label: 'Authorised', status: 'AUTHORISED' },
+];
+
 export function JobList() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,6 +68,28 @@ export function JobList() {
   const [endDate, setEndDate] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [counts, setCounts] = useState<JobCounts | null>(null);
+
+  const loadCounts = useCallback(async () => {
+    try {
+      const data = await apiFetch('/jobs/counts');
+      setCounts(data);
+    } catch {
+      // Chips are progressive enhancement — the list works without them.
+    }
+  }, []);
+
+  const debouncedCountsLoad = useMemo(
+    () => debounce(() => loadCounts(), 300),
+    [loadCounts]
+  );
+
+  useEffect(() => {
+    async function initCounts() {
+      await loadCounts();
+    }
+    initCounts();
+  }, [loadCounts]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
@@ -84,9 +121,9 @@ export function JobList() {
         setTotalPages(response.meta.totalPages || 1);
       }
       setListAnimated(true);
-    } catch (err: any) {
+    } catch (err) {
       if (!background) {
-        setError('Failed to load jobs: ' + err.message);
+        setError('Failed to load jobs: ' + (err instanceof Error ? err.message : 'Unknown error'));
       }
     } finally {
       if (!background) {
@@ -95,16 +132,16 @@ export function JobList() {
     }
   }, [activeTab, statusFilter, debouncedSearch, startDate, endDate, page]);
 
-  const loadJobsRef = useRef(loadJobs);
-  loadJobsRef.current = loadJobs;
-
   const debouncedBackgroundLoad = useMemo(
-    () => debounce(() => loadJobsRef.current({ background: true }), 300),
-    []
+    () => debounce(() => loadJobs({ background: true }), 300),
+    [loadJobs]
   );
 
   useEffect(() => {
-    loadJobs();
+    async function initJobs() {
+      await loadJobs();
+    }
+    initJobs();
   }, [loadJobs]);
 
   useEffect(() => {
@@ -130,14 +167,19 @@ export function JobList() {
       // COMPLETED while this tab is open) isn't in `prev` to patch — pick it
       // up on the next background refresh.
       debouncedBackgroundLoad();
+      debouncedCountsLoad();
     };
 
-    const handleJobCreated = () => debouncedBackgroundLoad();
+    const handleJobCreated = () => {
+      debouncedBackgroundLoad();
+      debouncedCountsLoad();
+    };
 
     const handleJobDeleted = (payload: { jobId: string }) => {
       setJobs((prev) => prev.filter((j) => j.id !== payload.jobId));
       // A job just landed in Archived — refresh so it shows up there.
       if (activeTab === 'archived') debouncedBackgroundLoad();
+      debouncedCountsLoad();
     };
 
     socket.on('job:statusChanged', handleStatusChanged);
@@ -148,7 +190,7 @@ export function JobList() {
       socket.off('job:created', handleJobCreated);
       socket.off('job:deleted', handleJobDeleted);
     };
-  }, [socket, debouncedBackgroundLoad, activeTab]);
+  }, [socket, debouncedBackgroundLoad, debouncedCountsLoad, activeTab]);
 
   const handleRestore = async (jobId: string, reactivate: boolean) => {
     setConfirmRestore(null);
@@ -159,15 +201,16 @@ export function JobList() {
         body: JSON.stringify({ reactivate }),
       });
       setJobs((prev) => prev.filter((j) => j.id !== jobId));
+      loadCounts();
       showToast(reactivate ? 'Job restored to the active pipeline' : 'Job restored', 'success');
-    } catch (err: any) {
-      showToast(err.message || 'Failed to restore job', 'error');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to restore job', 'error');
     } finally {
       setRestoringId(null);
     }
   };
 
-  const listContainer: any = {
+  const listContainer: Variants = {
     hidden: { opacity: 0 },
     show: {
       opacity: 1,
@@ -175,9 +218,9 @@ export function JobList() {
     }
   };
 
-  const listItem: any = {
+  const listItem: Variants = {
     hidden: { opacity: 0, y: 10 },
-    show: { opacity: 1, y: 0, transition: { type: 'spring', duration: 0.4, bounce: 0 } }
+    show: { opacity: 1, y: 0, transition: { type: 'spring' as const, duration: 0.4, bounce: 0 } }
   };
 
   const showInitialLoading = isLoading && jobs.length === 0;
@@ -217,6 +260,9 @@ export function JobList() {
               onClick={() => { setActiveTab(tab); setPage(1); }}
             >
               {tab === 'active' ? 'Active' : tab === 'completed' ? 'Completed' : tab === 'cancelled' ? 'Not Proceeding' : 'Archived'}
+              {counts && (
+                <span className="tab-count">{counts.byTab[tab]}</span>
+              )}
             </button>
           ))}
       </div>
@@ -241,18 +287,37 @@ export function JobList() {
           <label className="form-label" style={{ margin: 0 }}>To:</label>
           <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} />
         </div>
-        {activeTab === 'active' && (
-          <div className="flex items-center gap-2">
-            <label className="form-label" style={{ margin: 0 }}>Filter by Status:</label>
-            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} style={{ minWidth: '160px' }}>
-              <option value="">All Statuses</option>
-              <option value="TO_BE_CHECKED">To Be Checked</option>
-              <option value="CHECKED">Checked</option>
-              <option value="QUOTED">Quoted</option>
-              <option value="AUTHORISED">Authorised</option>
-              <option value="PENDING_INVOICE">Pending Invoice</option>
-            </select>
-          </div>
+      </div>
+
+      <div className="status-chip-row" role="group" aria-label="Filter by status">
+        {STATUS_CHIPS.map(({ key, label, status }) => {
+          const count = counts?.byStatus[status] ?? 0;
+          const selected = activeTab === 'active' && statusFilter === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              className={`status-chip ${key.toLowerCase()}${selected ? ' selected' : ''}${count === 0 ? ' zero' : ''}`}
+              aria-pressed={selected}
+              onClick={() => {
+                setActiveTab('active');
+                setStatusFilter(selected ? '' : key);
+                setPage(1);
+              }}
+            >
+              {label}
+              <span className="chip-count">{count}</span>
+            </button>
+          );
+        })}
+        {statusFilter && (
+          <button
+            type="button"
+            className="status-chip clear"
+            onClick={() => { setStatusFilter(''); setPage(1); }}
+          >
+            Clear
+          </button>
         )}
       </div>
 
