@@ -177,6 +177,12 @@
   outline-offset: 2px;
 }
 
+/* Team Access & Engineers use the full content width next to the sidebar,
+   instead of the shared 1400px centered column. */
+.main-content-inner--wide {
+  max-width: none;
+}
+
 .main-content-inner--dashboard {
   padding: var(--space-lg) var(--space-xl);
 }
@@ -202,6 +208,14 @@
 .stat-card {
   margin-bottom: 0;
   padding: var(--space-lg);
+  min-width: 0;
+}
+
+/* Grid items default to min-width: auto, which lets a card's content push the
+   card past the 1fr track (and past the row / page edge). Allow the cards to
+   shrink and their labels + values to wrap so every stat stays inside its box. */
+.stat-grid > * {
+  min-width: 0;
 }
 
 .stat-card-header {
@@ -210,6 +224,12 @@
   gap: var(--space-sm);
   margin-bottom: var(--space-md);
   color: var(--color-text-secondary);
+  flex-wrap: wrap;
+}
+
+.stat-card-header .font-medium {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .stat-card-icon {
@@ -220,13 +240,16 @@
   background-color: var(--color-bg);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .stat-card-value {
-  font-size: 2.5rem;
+  font-size: clamp(2rem, 4vw, 2.5rem);
   font-weight: 700;
   letter-spacing: -0.04em;
   color: var(--color-text-primary);
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .stat-card-badge {
@@ -286,6 +309,15 @@
 
 .dashboard-list-item-main {
   min-width: 0;
+}
+
+/* Dashboard list text wraps instead of pushing past the card edge, while
+   keeping the original title/meta typography. */
+.dashboard-list-item-title,
+.dashboard-list-item-meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .dashboard-list-item-title {
@@ -843,6 +875,29 @@
   border: 1px solid var(--color-border);
 }
 
+/* Logistics Grid: keep Start / End / Contractor on one line at desktop widths.
+   The generic filter-bar wraps (flex-wrap: wrap), which pushed the contractor
+   dropdown onto its own row; this scoped rule holds the row together at
+   >1024px while the ≤1024px stacking rules below still apply on smaller
+   viewports. */
+@media (min-width: 1025px) {
+  .logistics-filter-bar {
+    flex-wrap: nowrap;
+  }
+
+  .logistics-filter-bar > * {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .logistics-filter-bar input,
+  .logistics-filter-bar select {
+    min-height: 44px;
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 .search-input-wrapper {
   position: relative;
   flex: 1;
@@ -1397,6 +1452,7 @@
   color: var(--color-text-secondary);
   font-size: 0.8125rem;
   font-weight: 500;
+  align-items: center;
 }
 
 .list-row {
@@ -1412,11 +1468,106 @@
   align-items: start;
 }
 
-.list-cols-jobs { grid-template-columns: 1fr 1.5fr 2fr 2fr 1.5fr 1fr; }
-.list-cols-clients { grid-template-columns: 2fr 2fr 1fr 1fr 1fr; }
-.list-cols-properties { grid-template-columns: 2fr 1.5fr 1.5fr 0.75fr; }
-.list-cols-engineers { grid-template-columns: 1.75fr 1.25fr 1.75fr 0.9fr 1.6fr; }
-.list-cols-team { grid-template-columns: 2fr 2fr 1fr 1fr 1.5fr; }
+/* Keep every cell track proportional to its column so long content (emails,
+   names, action buttons) can never stretch a row's track past the header's
+   column width and break header↔body alignment. With the floor removed, each
+   cell must also keep its content inside the column: `overflow-wrap: anywhere`
+   lets long unbroken strings (emails, names) wrap and shrink instead of
+   spilling across neighbouring columns. */
+.list-header > *,
+.list-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list-row .list-cell-action {
+  flex-wrap: wrap;
+}
+
+.list-cols-jobs { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1fr); }
+/* Jobs list status cell is a column-flex; let the pill size to its text
+   (max-fit) instead of stretching to the full cell width. */
+.list-cols-jobs [data-label="Status"] { align-items: flex-start; }
+/* Jobs list pills: text-xs (0.75rem) semibold with a tight, uniform line
+   height so PENDING INVOICE / AUTHORISED / TO BE CHECKED fit snugly. */
+.list-cols-jobs .status-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.list-cols-clients { grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(min(160px, 100%), 1.5fr); }
+/* Clients list actions cell: single horizontal row, right-aligned, never wraps. */
+.list-cols-clients .list-cell-action {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.list-cols-clients .list-cell-action .button {
+  white-space: nowrap;
+  flex: none;
+}
+.list-cols-engineers { grid-template-columns: minmax(0, 4fr) minmax(0, 3fr) minmax(min-content, 7fr) minmax(0, 3fr) minmax(0, 4.5fr); }
+.list-cols-team { grid-template-columns: minmax(0, 4fr) minmax(0, 6fr) minmax(0, 3fr) minmax(0, 3fr) minmax(0, 4fr); }
+
+/* Engineers list text: every cell stays on one single line. Emails render in
+   full — no ellipsis — thanks to the wide Email column + min-content floor. */
+.list-cols-engineers > * { white-space: nowrap; }
+
+/* Engineers rows: compact, uniform height (py-2.5 px-4 equivalent) so more
+   rows fit and cells stay vertically centered. */
+.list-header.list-cols-engineers,
+.list-row.list-cols-engineers {
+  padding: 0.625rem 1rem;
+}
+
+/* Team list text: only Names may wrap. Emails stay intact on one line —
+   an over-long address truncates with ellipsis inside its own element so it
+   never spills into the Role column (full value = native title tooltip); the
+   no-email / invite-pending badges remain visible next to it. */
+.list-cols-team > *:nth-child(1) { white-space: normal; }
+.list-cols-team > *:nth-child(3),
+.list-cols-team > *:nth-child(4) { white-space: nowrap; }
+.member-email {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* Action buttons: Team Access keeps a single row that never wraps. Engineers
+   uses a 2-row block — Timesheet + Edit side by side on top (sharing width),
+   full-width Deactivate below. Buttons never wrap their labels. */
+.list-cols-team .list-cell-action > .flex {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 0.5rem;
+}
+.list-cols-engineers .list-cell-action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  align-items: stretch;
+}
+.list-cols-engineers .list-cell-action > .flex {
+  flex-wrap: nowrap;
+  width: 100%;
+}
+.list-cols-engineers .list-cell-action > .flex .button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.list-cols-engineers .list-cell-action .button.danger {
+  width: 100%;
+  flex: none;
+}
+.list-cols-team .list-cell-action .button {
+  flex: none;
+  white-space: nowrap;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+}
 
 /* Horizontal scroll wrapper for real tables */
 .table-scroll {

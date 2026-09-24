@@ -27,7 +27,7 @@ export function PropertyList() {
   const { showToast } = useToast();
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const [searchQuery, setSearchQuery] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -109,7 +109,7 @@ export function PropertyList() {
     }
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
@@ -134,7 +134,7 @@ export function PropertyList() {
     }
   };
 
-  const handleUpdate = async (e: React.FormEvent) => {
+  const handleUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingId) return;
     setIsSubmitting(true);
@@ -165,20 +165,12 @@ export function PropertyList() {
   const filteredProperties = useMemo(() => {
     if (!searchQuery) return properties;
     const lowerQuery = searchQuery.toLowerCase();
-    return properties.filter(p => 
-      p.address.toLowerCase().includes(lowerQuery) || 
+    return properties.filter(p =>
+      p.address.toLowerCase().includes(lowerQuery) ||
       (p.lastTenants && p.lastTenants.some(t => t.name.toLowerCase().includes(lowerQuery))) ||
       (p.currentClient && p.currentClient.name.toLowerCase().includes(lowerQuery))
     );
   }, [properties, searchQuery]);
-
-  const listContainer: any = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: { staggerChildren: 0.05 }
-    }
-  };
 
   const listItem: any = {
     hidden: { opacity: 0, y: 10 },
@@ -190,7 +182,7 @@ export function PropertyList() {
       <div className="page-header">
         <div className="page-header-title">
           <h1 className="flex items-center gap-3">
-            <Home size={28} className="text-brand" style={{ color: 'var(--color-brand)' }} /> 
+            <Home size={28} className="text-brand" style={{ color: 'var(--color-brand)' }} />
             Properties
           </h1>
           <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>Manage your portfolio and tenant assignments.</p>
@@ -200,17 +192,17 @@ export function PropertyList() {
       <div className="filter-bar">
           <div className="search-input-wrapper">
             <Search size={18} />
-            <input 
-              type="text" 
-              placeholder="Search address or tenant..." 
+            <input
+              type="text"
+              placeholder="Search address or tenant..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="search-input"
             />
           </div>
-          
-          <motion.button 
-            className="button primary" 
+
+          <motion.button
+            className="button primary"
             onClick={() => {
               if (isFormOpen || editingId) {
                 resetForm();
@@ -230,7 +222,7 @@ export function PropertyList() {
 
       <AnimatePresence>
         {(isFormOpen || editingId) && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, height: 0, overflow: 'hidden' }}
             animate={{ opacity: 1, height: 'auto', overflow: 'visible' }}
             exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
@@ -286,11 +278,11 @@ export function PropertyList() {
                   <input type="text" value={keyLocation} onChange={e => setKeyLocation(e.target.value)} placeholder="E.g. Under mat, lockbox code 1234" />
                 </div>
               </div>
-              
+
               <div className="form-actions">
-                <motion.button 
-                  type="submit" 
-                  className="button primary" 
+                <motion.button
+                  type="submit"
+                  className="button primary"
                   disabled={isSubmitting}
                   whileTap={{ scale: 0.97 }}
                 >
@@ -306,114 +298,120 @@ export function PropertyList() {
         <div className="text-secondary" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading properties...</div>
       ) : (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-          {/* List Header */}
-          <div className="list-header list-cols-properties">
-            <div>Address</div>
-            <div>Current Tenants</div>
-            <div>Assigned Client</div>
-            <div style={{ textAlign: 'right' }}>Action</div>
-          </div>
-
-          <motion.ul 
-            variants={listContainer}
-            initial="hidden"
-            animate="show"
-            style={{ listStyle: 'none', padding: 0, margin: 0 }}
-          >
-            {filteredProperties.length > 0 ? (
-              filteredProperties.map((p) => (
-                <motion.li 
-                  key={p.id} 
-                  variants={listItem}
-                  className="list-row list-row--top list-cols-properties"
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-surface)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  <div className="flex items-start gap-3" data-label="Address">
-                    <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
-                      <MapPin size={16} className="text-secondary" />
-                    </div>
-                    <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
-                      <div className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {p.address}
-                        {p.postcode && !p.address.toLowerCase().trimEnd().endsWith(p.postcode.trim().toLowerCase()) && (
-                          <span className="text-secondary" style={{ fontWeight: 400 }}>, {p.postcode}</span>
+          <table className="min-w-full divide-y divide-border">
+            <thead>
+              <tr>
+                <th className="w-[30%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                  Address
+                </th>
+                <th className="w-[25%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                  Current Tenants
+                </th>
+                <th className="w-[33%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                  Assigned Client
+                </th>
+                <th className="w-[12%] px-4 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                  Action
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredProperties.length > 0 ? (
+                filteredProperties.map((p) => (
+                  <motion.tr
+                    key={p.id}
+                    variants={listItem}
+                    className="cursor-pointer hover:bg-gray-50/80 dark:hover:bg-zinc-900/50 transition-colors"
+                  >
+                    <td className="w-[30%] px-4 py-4 whitespace-nowrap align-middle">
+                      <div className="flex items-start gap-3">
+                        <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+                          <MapPin size={16} className="text-secondary" />
+                        </div>
+                        <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
+                          <div className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                            {p.address}
+                            {p.postcode && !p.address.toLowerCase().trimEnd().endsWith(p.postcode.trim().toLowerCase()) && (
+                              <span className="text-secondary" style={{ fontWeight: 400 }}>, {p.postcode}</span>
+                            )}
+                          </div>
+                          {p.parent && (
+                            <div className="text-secondary flex items-center gap-1" style={{ fontSize: '0.875rem' }}>
+                              <CornerDownRight size={14} className="text-muted" /> Part of: {p.parent.address}
+                            </div>
+                          )}
+                          {p.subUnits && p.subUnits.length > 0 && (
+                            <div style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+                              <span style={{ fontWeight: 500, color: 'var(--color-brand)' }}>{p.subUnits.length} sub-units</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="w-[25%] px-4 py-4 whitespace-nowrap align-middle">
+                      <div className="flex" style={{ flexDirection: 'column', gap: '0.35rem' }}>
+                        {p.lastTenants && p.lastTenants.length > 0 ? (
+                          p.lastTenants.map(t => (
+                            <div key={t.id} className="flex items-center gap-2" style={{ fontSize: '0.9375rem' }}>
+                              <User size={14} className="text-muted" />
+                              <span style={{ color: 'var(--color-text-primary)' }}>
+                                {t.name}
+                                {t.phone && <span className="text-muted" style={{ fontSize: '0.85rem', marginLeft: '0.5rem' }}>{t.phone}</span>}
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <span className="text-muted" style={{ fontSize: '0.875rem' }}>No tenants assigned</span>
                         )}
                       </div>
-                      {p.parent && (
-                        <div className="text-secondary flex items-center gap-1" style={{ fontSize: '0.875rem' }}>
-                          <CornerDownRight size={14} className="text-muted" /> Part of: {p.parent.address}
-                        </div>
-                      )}
-                      {p.subUnits && p.subUnits.length > 0 && (
-                        <div style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                          <span style={{ fontWeight: 500, color: 'var(--color-brand)' }}>{p.subUnits.length} sub-units</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div data-label="Current Tenants">
-                    <div className="flex" style={{ flexDirection: 'column', gap: '0.35rem' }}>
-                      {p.lastTenants && p.lastTenants.length > 0 ? (
-                        p.lastTenants.map(t => (
-                          <div key={t.id} className="flex items-center gap-2" style={{ fontSize: '0.9375rem' }}>
-                            <User size={14} className="text-muted" /> 
-                            <span style={{ color: 'var(--color-text-primary)' }}>
-                              {t.name}
-                              {t.phone && <span className="text-muted" style={{ fontSize: '0.85rem', marginLeft: '0.5rem' }}>{t.phone}</span>}
-                            </span>
+                    </td>
+                    <td className="w-[33%] px-4 py-4 whitespace-nowrap align-middle">
+                      {p.currentClient ? (
+                        <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
+                          <div className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
+                            <Building2 size={14} className="text-muted" /> {p.currentClient.name}
                           </div>
-                        ))
+                          {(p.currentClient.phone || p.currentClient.email) && (
+                            <div className="text-muted" style={{ fontSize: '0.85rem', marginLeft: '1.35rem' }}>
+                              {[p.currentClient.phone, p.currentClient.email].filter(Boolean).join(' | ')}
+                            </div>
+                          )}
+                        </div>
                       ) : (
-                        <span className="text-muted" style={{ fontSize: '0.875rem' }}>No tenants assigned</span>
+                        <span className="text-muted" style={{ fontSize: '0.875rem', fontStyle: 'italic' }}>Unassigned</span>
                       )}
-                    </div>
-                  </div>
-                  
-                  <div data-label="Assigned Client">
-                    {p.currentClient ? (
-                      <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
-                        <div className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
-                          <Building2 size={14} className="text-muted" /> {p.currentClient.name}
-                        </div>
-                        {(p.currentClient.phone || p.currentClient.email) && (
-                          <div className="text-muted" style={{ fontSize: '0.85rem', marginLeft: '1.35rem' }}>
-                            {[p.currentClient.phone, p.currentClient.email].filter(Boolean).join(' | ')}
-                          </div>
-                        )}
+                    </td>
+                    <td className="w-[12%] px-4 py-4 whitespace-nowrap align-middle text-right">
+                      <div className="list-cell-action">
+                        <motion.button
+                          className="button secondary small flex items-center gap-2"
+                          onClick={() => openEdit(p)}
+                          whileTap={{ scale: 0.95 }}
+                          style={{ display: 'inline-flex' }}
+                        >
+                          <Edit size={14} /> Edit
+                        </motion.button>
                       </div>
-                    ) : (
-                      <span className="text-muted" style={{ fontSize: '0.875rem', fontStyle: 'italic' }}>Unassigned</span>
-                    )}
-                  </div>
-
-                  <div className="list-cell-action" style={{ textAlign: 'right' }}>
-                    <motion.button
-                      className="button secondary small flex items-center gap-2"
-                      onClick={() => openEdit(p)}
-                      whileTap={{ scale: 0.95 }}
-                      style={{ display: 'inline-flex' }}
-                    >
-                      <Edit size={14} /> Edit
-                    </motion.button>
-                  </div>
-                </motion.li>
-              ))
-            ) : (
-              <motion.li variants={listItem} style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>
-                <div className="empty-state" style={{ border: 'none', padding: 0 }}>
-                  <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg)', borderRadius: '50%', marginBottom: 'var(--space-md)' }}>
-                    <Home size={32} className="text-muted" />
-                  </div>
-                  <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No properties found</p>
-                  <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
-                    {searchQuery ? "Try adjusting your search query." : "Add a property to get started."}
-                  </p>
-                </div>
-              </motion.li>
-            )}
-          </motion.ul>
+                    </td>
+                  </motion.tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-secondary">
+                    <div className="empty-state">
+                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg)', borderRadius: '50%', marginBottom: 'var(--space-md)' }}>
+                        <Home size={32} className="text-muted" />
+                      </div>
+                      <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No properties found</p>
+                      <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
+                        {searchQuery ? "Try adjusting your search query." : "Add a property to get started."}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
     </motion.div>

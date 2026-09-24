@@ -115,6 +115,7 @@ export function AppShell() {
   const displayName = user?.name ?? 'Workspace';
   const initials = getInitials(user?.name);
   const isDashboard = location.pathname === '/';
+  const isWide = location.pathname === '/team' || location.pathname === '/engineers';
   const canUsersView = can('users:view');
   const canEngineersView = can('engineers:view');
 
@@ -406,7 +407,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <div className={`main-content-inner${isDashboard ? ' main-content-inner--dashboard' : ''}`}>
+        <div className={`main-content-inner${isDashboard ? ' main-content-inner--dashboard' : ''}${isWide ? ' main-content-inner--wide' : ''}`}>
           <Outlet />
         </div>
       </main>

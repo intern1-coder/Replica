@@ -9,6 +9,7 @@ import { useReminders } from '../contexts/ReminderContext';
 import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness, Calendar, RotateCcw } from 'lucide-react';
 import { motion, type Variants } from 'motion/react';
 import { useToast } from '../contexts/ToastContext';
+import Select from 'react-select';
 
 export interface Job {
   id: string;
@@ -47,6 +48,7 @@ const STATUS_CHIPS: { key: string; label: string; status: Job['status'] }[] = [
   { key: 'CHECKED', label: 'Checked', status: 'CHECKED' },
   { key: 'QUOTED', label: 'Quoted', status: 'QUOTED' },
   { key: 'AUTHORISED', label: 'Authorised', status: 'AUTHORISED' },
+  { key: 'PENDING_INVOICE', label: 'Pending Invoice', status: 'PENDING_INVOICE' },
 ];
 
 export function JobList() {
@@ -267,6 +269,65 @@ export function JobList() {
           ))}
       </div>
 
+      {/* Status Filter Section */}
+      {counts && (
+        <div className="flex flex-col items-start gap-2" style={{ marginBottom: 'var(--space-md)' }}>
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-muted" />
+            <label className="form-label" style={{ margin: 0 }}>Status:</label>
+            <Select
+              options={[
+                ...STATUS_CHIPS.map(({ key, label, status }) => ({
+                  key,
+                  label: `${label} ${counts?.byStatus[status] ? `(${counts.byStatus[status]})` : ''}`,
+                  status
+                }))
+              ]}
+              value={statusFilter ? STATUS_CHIPS.find(chip => chip.key === statusFilter) : null}
+              onChange={ (selectedOption) => {
+                setStatusFilter(selectedOption ? selectedOption.key : '');
+                setPage(1);
+              }}
+              placeholder="Filter by status..."
+              isClearable={true}
+              styles={{
+                control: (provided) => ({
+                  ...provided,
+                  minWidth: '200px',
+                }),
+                option: (provided, state) => ({
+                  ...provided,
+                  backgroundColor: state.isSelected ? '#2563eb' : '#ffffff',
+                  color: state.isSelected ? '#ffffff' : '#0f172a',
+                }),
+                input: (provided) => ({
+                  ...provided,
+                  color: '#0f172a',
+                  fontSize: '1rem',
+                }),
+                placeholder: (provided) => ({
+                  ...provided,
+                  color: '#64748b',
+                }),
+                menu: (provided) => ({
+                  ...provided,
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '0.375rem',
+                  marginTop: '0.125rem',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)',
+                  zIndex: 1000,
+                }),
+                menuList: (provided) => ({
+                  ...provided,
+                  padding: '0',
+                }),
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="filter-bar">
         <div className="search-input-wrapper">
           <Search size={18} />
@@ -287,38 +348,6 @@ export function JobList() {
           <label className="form-label" style={{ margin: 0 }}>To:</label>
           <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} />
         </div>
-      </div>
-
-      <div className="status-chip-row" role="group" aria-label="Filter by status">
-        {STATUS_CHIPS.map(({ key, label, status }) => {
-          const count = counts?.byStatus[status] ?? 0;
-          const selected = activeTab === 'active' && statusFilter === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              className={`status-chip ${key.toLowerCase()}${selected ? ' selected' : ''}${count === 0 ? ' zero' : ''}`}
-              aria-pressed={selected}
-              onClick={() => {
-                setActiveTab('active');
-                setStatusFilter(selected ? '' : key);
-                setPage(1);
-              }}
-            >
-              {label}
-              <span className="chip-count">{count}</span>
-            </button>
-          );
-        })}
-        {statusFilter && (
-          <button
-            type="button"
-            className="status-chip clear"
-            onClick={() => { setStatusFilter(''); setPage(1); }}
-          >
-            Clear
-          </button>
-        )}
       </div>
 
       {showInitialLoading ? (
@@ -380,11 +409,11 @@ export function JobList() {
                     })()}
                   </div>
                   <div className="flex items-center gap-2" data-label="Address" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
-                    <MapPin size={16} className="text-muted" />
+                    <MapPin size={20} className="text-muted" style={{ flex: 'none' }} />
                     {j.property?.address || `Property #${j.propertyId.toString().substring(0, 8)}`}
                   </div>
                   <div className="flex items-center gap-2 text-secondary" data-label="Client" style={{ fontSize: '0.9375rem' }}>
-                    <User size={16} className="text-muted" />
+                    <User size={20} className="text-muted" style={{ flex: 'none' }} />
                     {j.client?.name || `Client #${j.clientId.toString().substring(0, 8)}`}
                   </div>
                   <div className="tabular-nums text-muted" data-label="Date Created" style={{ fontSize: '0.875rem' }}>

@@ -4,6 +4,7 @@ import { apiFetch } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import { applyPermissionToggle } from '../utils/permissions';
 import { Users, UserPlus, KeyRound, Shield, Trash2, Pencil, X, MailPlus } from 'lucide-react';
+import { motion } from 'motion/react';
 
 interface Member {
   id: string;
@@ -39,7 +40,7 @@ export function UsersList() {
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [resetId, setResetId] = useState<string | null>(null);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
 
   const sessionReady = user !== null;
   const canView = can('users:view');
@@ -120,6 +121,11 @@ export function UsersList() {
     }
   };
 
+  const listItem: any = {
+    hidden: { opacity: 0, y: 10 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring', duration: 0.4, bounce: 0 } }
+  };
+
   return (
     <div className="page-enter">
       <div className="page-header flex items-center justify-between">
@@ -137,7 +143,7 @@ export function UsersList() {
       {notice && (
         <div className="section-card flex items-center justify-between" style={{ padding: 'var(--space-sm) var(--space-md)', marginBottom: 'var(--space-md)' }}>
           <span className="text-secondary">{notice}</span>
-          <button className="button secondary" style={{ padding: 6 }} onClick={() => setNotice('')}><X size={16} /></button>
+          <button className="button secondary" style={{ padding: 6 }} onClick={() => setNotice(null)}><X size={16} /></button>
         </div>
       )}
 
@@ -145,74 +151,105 @@ export function UsersList() {
         <p>Loading team…</p>
       ) : (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div className="list-header list-cols-team">
-            <div>Name</div>
-            <div>Email</div>
-            <div>Role</div>
-            <div>Customised</div>
-            <div style={{ textAlign: 'right' }}>Actions</div>
+          <div className="table-scroll">
+            <table className="min-w-full divide-y divide-border">
+              <thead>
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Name
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Email
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Role
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Customised
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {members.length > 0 ? (
+                  members.map((m) => {
+                    const overrideCount = m.permissionOverrides
+                      ? Object.keys(m.permissionOverrides).length
+                      : 0;
+                    return (
+                      <motion.tr
+                        key={m.id}
+                        variants={listItem}
+                        className="cursor-pointer hover:bg-gray-50/80 dark:hover:bg-zinc-900/50 transition-colors"
+                      >
+                        <td className="px-4 py-4 whitespace-nowrap align-middle">
+                          <div className="font-medium" data-label="Name">{m.name}</div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap align-middle">
+                          <div className="text-secondary" data-label="Email">
+                            <span className="member-email" title={m.email}>{m.email}</span>
+                            {m.email.endsWith('@noemail.local') && (
+                              <span className="status-badge" title="Placeholder address — set a real email so this member can log in" style={{ marginLeft: 6 }}>no email</span>
+                            )}
+                            {m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
+                              <span className="status-badge quoted" title="Member has not set a password yet" style={{ marginLeft: 6 }}>invite pending</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap align-middle">
+                          <div data-label="Role"><span className="status-badge quoted">{m.role}</span></div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap align-middle">
+                          <div data-label="Customised">
+                            {overrideCount > 0 ? (
+                              <span className="status-badge authorised">{overrideCount} override{overrideCount > 1 ? 's' : ''}</span>
+                            ) : (
+                              <span className="text-muted">Role defaults</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap align-middle text-right">
+                          <div className="list-cell-action flex items-center gap-2 flex-wrap">
+                            {canEdit && (
+                              <button className="button secondary" title="Edit & permissions" onClick={() => setEditId(m.id)}>
+                                <Pencil size={16} /> Edit
+                              </button>
+                            )}
+                            {canCreate && m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
+                              <button className="button secondary" title="Resend invite email" onClick={() => handleResendInvite(m)}>
+                                <MailPlus size={16} /> Resend
+                              </button>
+                            )}
+                            {canEdit && (
+                              <button className="button secondary" title="Reset password" onClick={() => setResetId(m.id)}>
+                                <KeyRound size={16} /> Reset
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button className="button danger" title="Deactivate" onClick={() => handleDeactivate(m)}>
+                                <Trash2 size={16} /> Remove
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </motion.tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-secondary">
+                      <div className="empty-state" style={{ border: 'none' }}>
+                        <Users size={48} className="text-muted" style={{ opacity: 0.5, marginBottom: 'var(--space-sm)' }} />
+                        <p className="font-medium" style={{ margin: 0 }}>No members found</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-            {members.map((m) => {
-              const overrideCount = m.permissionOverrides
-                ? Object.keys(m.permissionOverrides).length
-                : 0;
-              return (
-                <li key={m.id} className="list-row list-cols-team">
-                  <div className="font-medium" data-label="Name">{m.name}</div>
-                  <div className="text-secondary" data-label="Email">
-                    {m.email}
-                    {m.email.endsWith('@noemail.local') && (
-                      <span className="status-badge" title="Placeholder address — set a real email so this member can log in" style={{ marginLeft: 6 }}>no email</span>
-                    )}
-                    {m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
-                      <span className="status-badge quoted" title="Member has not set a password yet" style={{ marginLeft: 6 }}>invite pending</span>
-                    )}
-                  </div>
-                  <div data-label="Role"><span className="status-badge quoted">{m.role}</span></div>
-                  <div data-label="Customised">
-                    {overrideCount > 0 ? (
-                      <span className="status-badge authorised">{overrideCount} override{overrideCount > 1 ? 's' : ''}</span>
-                    ) : (
-                      <span className="text-muted">Role defaults</span>
-                    )}
-                  </div>
-                  <div className="list-cell-action" data-label="Actions">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {canEdit && (
-                        <button className="button secondary" title="Edit & permissions" onClick={() => setEditId(m.id)}>
-                          <Pencil size={16} /> Edit
-                        </button>
-                      )}
-                      {canCreate && m.hasPassword === false && !m.email.endsWith('@noemail.local') && (
-                        <button className="button secondary" title="Resend invite email" onClick={() => handleResendInvite(m)}>
-                          <MailPlus size={16} /> Resend
-                        </button>
-                      )}
-                      {canEdit && (
-                        <button className="button secondary" title="Reset password" onClick={() => setResetId(m.id)}>
-                          <KeyRound size={16} /> Reset
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button className="button danger" title="Deactivate" onClick={() => handleDeactivate(m)}>
-                          <Trash2 size={16} /> Remove
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-            {members.length === 0 && (
-              <li style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>
-                <div className="empty-state" style={{ border: 'none' }}>
-                  <Users size={48} className="text-muted" style={{ opacity: 0.5, marginBottom: 'var(--space-sm)' }} />
-                  <p className="font-medium" style={{ margin: 0 }}>No members found</p>
-                </div>
-              </li>
-            )}
-          </ul>
         </div>
       )}
 
@@ -245,7 +282,6 @@ export function UsersList() {
 }
 
 // ── Modal shell ──────────────────────────────────────────────────────────────
-
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
     <div
@@ -268,7 +304,6 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 }
 
 // ── Permission matrix ─────────────────────────────────────────────────────────
-
 function PermissionMatrix({
   groups,
   effective,
@@ -309,8 +344,7 @@ function PermissionMatrix({
   );
 }
 
-// ── Add member ─────────────────────────────────────────────────────────────────
-
+// ── Add member ─────────────────────────────────────────────────────────────
 function AddMemberModal({ groups, roles, onClose, onCreated }: { groups: PermGroup[]; roles: string[]; onClose: () => void; onCreated: (message: string) => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -320,7 +354,7 @@ function AddMemberModal({ groups, roles, onClose, onCreated }: { groups: PermGro
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     if (!name.trim()) return setError('Name is required.');
@@ -390,8 +424,7 @@ function AddMemberModal({ groups, roles, onClose, onCreated }: { groups: PermGro
   );
 }
 
-// ── Edit member (profile + matrix) ─────────────────────────────────────────────
-
+// ── Edit member (profile + matrix) ─────────────────────────────────────────
 function EditMemberModal({ memberId, groups, roles, onClose, onSaved }: { memberId: string; groups: PermGroup[]; roles: string[]; onClose: () => void; onSaved: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -495,8 +528,7 @@ function EditMemberModal({ memberId, groups, roles, onClose, onSaved }: { member
   );
 }
 
-// ── Reset password ──────────────────────────────────────────────────────────────
-
+// ── Reset password ─────────────────────────────────────────────────────────
 function ResetPasswordModal({ memberId, memberName, onClose }: { memberId: string; memberName: string; onClose: () => void }) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -504,7 +536,7 @@ function ResetPasswordModal({ memberId, memberName, onClose }: { memberId: strin
   const [done, setDone] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     if (password.length < 8) return setError('Password must be at least 8 characters.');

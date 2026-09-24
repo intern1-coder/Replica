@@ -215,9 +215,6 @@ export function Dashboard() {
               <span className="font-medium">Active Jobs</span>
             </div>
             <div className="stat-card-value">{isLoading ? '-' : stats.activeJobsCount}</div>
-            {!isLoading && stats.activeJobsCount > 0 && (
-              <span className="stat-card-badge">Ongoing</span>
-            )}
           </motion.div>
 
           <motion.div variants={item} className="section-card stat-card">
@@ -227,7 +224,9 @@ export function Dashboard() {
               </div>
               <span className="font-medium">Clients</span>
             </div>
-            <div className="stat-card-value">{isLoading ? '-' : stats.clientsCount}</div>
+            <div className="stat-card-value">
+              {isLoading ? '-' : stats.clientsCount}
+            </div>
           </motion.div>
 
           <motion.div variants={item} className="section-card stat-card">

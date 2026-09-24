@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { Calendar, Clock, MapPin, User, X, Briefcase, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import Select from 'react-select';
 
 interface WorkLog {
   id: string;
@@ -50,10 +51,11 @@ export function LogisticsGrid() {
 
   const today = new Date();
   const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-  
+
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
   const [contractorId, setContractorId] = useState('');
+  const [contractorLoading, setContractorLoading] = useState(true);
   
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -61,9 +63,17 @@ export function LogisticsGrid() {
   const [periodSummary, setPeriodSummary] = useState<{ totals: { hours: string; labourCost?: string; materialCost: string; logCount: number } } | null>(null);
 
   useEffect(() => {
+    setContractorLoading(true);
     apiFetch('/engineers')
-      .then(res => setContractors(res))
-      .catch(console.error);
+      .then(res => {
+        setContractors(res || []);
+        setContractorLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setContractorLoading(false);
+        setContractors([]); // Ensure contractors is empty array on error
+      });
   }, []);
 
   // Upcoming: jobs actually booked (Job.scheduledDate) in the next
@@ -263,7 +273,7 @@ export function LogisticsGrid() {
         </div>
       </div>
       
-      <div className="filter-bar section-card" style={{ marginBottom: 'var(--space-xl)' }}>
+      <div className="filter-bar logistics-filter-bar section-card" style={{ marginBottom: 'var(--space-xl)' }}>
         <div className="flex items-center gap-2">
           <Calendar size={18} className="text-muted" />
           <label className="form-label" style={{ margin: 0 }}>Start:</label>
@@ -276,12 +286,55 @@ export function LogisticsGrid() {
         <div className="flex items-center gap-2">
           <User size={18} className="text-muted" />
           <label className="form-label" style={{ margin: 0 }}>Contractor:</label>
-          <select value={contractorId} onChange={e => { setContractorId(e.target.value); setPage(1); }} style={{ minWidth: '200px' }}>
-            <option value="">All Contractors</option>
-            {contractors.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <Select
+            options={[
+              { id: '', name: 'All Contractors' },
+              ...contractors.map(c => ({ id: c.id, name: c.name }))
+            ]}
+            value={contractorId ? contractors.find(c => c.id === contractorId) : null}
+            onChange={ (selectedOption) => {
+              setContractorId(selectedOption ? selectedOption.id : '');
+              setPage(1);
+            }}
+            placeholder={contractorLoading ? 'Loading contractors...' : 'Search contractors...'}
+            isLoading={contractorLoading}
+            isClearable={true}
+            getOptionLabel={(option) => option.name}
+            getOptionValue={(option) => option.id}
+            styles={{
+              control: (provided) => ({
+                ...provided,
+                minWidth: '250px',
+              }),
+              option: (provided, state) => ({
+                ...provided,
+                backgroundColor: state.isSelected ? '#2563eb' : '#ffffff',
+                color: state.isSelected ? '#ffffff' : '#1e293b',
+              }),
+              input: (provided) => ({
+                ...provided,
+                color: '#0f172a',
+                fontSize: '1rem',
+              }),
+              placeholder: (provided) => ({
+                ...provided,
+                color: '#64748b',
+              }),
+              menu: (provided) => ({
+                ...provided,
+                backgroundColor: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '0.375rem',
+                marginTop: '0.125rem',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)',
+                zIndex: 1000,
+              }),
+              menuList: (provided) => ({
+                ...provided,
+                padding: '0',
+              }),
+            }}
+          />
         </div>
       </div>
 

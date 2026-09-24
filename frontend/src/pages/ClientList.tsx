@@ -67,7 +67,7 @@ export function ClientList() {
     setError('');
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
@@ -87,7 +87,7 @@ export function ClientList() {
     }
   };
 
-  const handleUpdate = async (e: React.FormEvent) => {
+  const handleUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingId) return;
     setIsSubmitting(true);
@@ -137,14 +137,6 @@ export function ClientList() {
       (c.phone && c.phone.includes(lowerQuery))
     );
   }, [clients, searchQuery]);
-
-  const listContainer: any = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: { staggerChildren: 0.05 }
-    }
-  };
 
   const listItem: any = {
     hidden: { opacity: 0, y: 10 },
@@ -253,124 +245,134 @@ export function ClientList() {
         <div className="text-secondary" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading clients...</div>
       ) : (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-          {/* List Header */}
-          <div className="list-header list-cols-clients">
-            <div>Client</div>
-            <div>Contact Info</div>
-            <div>Status</div>
-            <div>Created</div>
-            {(canEdit || canDeactivate) && <div style={{ textAlign: 'right' }}>Actions</div>}
-          </div>
-
-          {/* List Body */}
-          <motion.ul
-            variants={listContainer}
-            initial="hidden"
-            animate="show"
-            style={{ listStyle: 'none', padding: 0, margin: 0 }}
-          >
-            {filteredClients.length > 0 ? (
-              filteredClients.map((c) => {
-                const isInactive = !!c.deletedAt;
-                return (
-                <motion.li
-                  key={c.id}
-                  variants={listItem}
-                  className="list-row list-cols-clients"
-                  style={isInactive ? { opacity: 0.6 } : undefined}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-surface)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  <div className="flex items-center gap-3" data-label="Client">
-                    <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
-                      <User size={16} className="text-secondary" />
-                    </div>
-                    <div>
-                      <div className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{c.name}</div>
-                      <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '0.125rem' }}>ID: {c.id.split('-')[0]}</div>
-                    </div>
-                  </div>
-
-                  <div className="flex" data-label="Contact Info" style={{ flexDirection: 'column', gap: '0.35rem' }}>
-                    {c.email && (
-                      <div className="flex items-center gap-2 text-secondary" style={{ fontSize: '0.85rem' }}>
-                        <Mail size={14} className="text-muted" /> {c.email}
-                      </div>
-                    )}
-                    {c.phone && (
-                      <div className="flex items-center gap-2 text-secondary" style={{ fontSize: '0.85rem' }}>
-                        <Phone size={14} className="text-muted" /> {c.phone}
-                      </div>
-                    )}
-                    {!c.email && !c.phone && <span className="text-muted" style={{ fontSize: '0.85rem' }}>No contact info</span>}
-                  </div>
-
-                  <div data-label="Status">
-                    <span className={`status-badge ${isInactive ? 'cancelled' : 'authorised'}`}>
-                      {isInactive ? 'INACTIVE' : 'ACTIVE'}
-                    </span>
-                  </div>
-
-                  <div className="text-secondary" data-label="Created" style={{ fontSize: '0.875rem' }}>
-                    {new Date(c.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-                  </div>
-
-                  {(canEdit || canDeactivate) && (
-                    <div className="list-cell-action flex items-center gap-2" style={{ justifyContent: 'flex-end' }}>
-                      {isInactive ? (
-                        canDeactivate && (
-                          <motion.button
-                            className="button secondary small"
-                            onClick={() => handleReactivate(c)}
-                            whileTap={{ scale: 0.95 }}
-                            title="Reactivate client"
-                          >
-                            <RotateCcw size={14} /> Reactivate
-                          </motion.button>
-                        )
-                      ) : (
-                        <>
-                          {canEdit && (
-                            <motion.button
-                              className="button secondary small"
-                              onClick={() => openEdit(c)}
-                              whileTap={{ scale: 0.95 }}
-                              title="Edit client"
-                            >
-                              <Edit size={14} /> Edit
-                            </motion.button>
+          <table className="min-w-full divide-y divide-border">
+            <thead>
+              <tr>
+                <th className="w-[35%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                  Client
+                </th>
+                <th className="w-[30%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                  Contact Info
+                </th>
+                <th className="w-[15%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                  Status
+                </th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                  Created
+                </th>
+                {(canEdit || canDeactivate) && (
+                  <th className="w-[10%] px-4 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Actions
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredClients.length > 0 ? (
+                filteredClients.map((c) => {
+                  const isInactive = !!c.deletedAt;
+                  return (
+                    <motion.tr
+                      key={c.id}
+                      variants={listItem}
+                      className="cursor-pointer hover:bg-gray-50/80 dark:hover:bg-zinc-900/50 transition-colors"
+                      style={isInactive ? { opacity: 0.6 } : undefined}
+                    >
+                      <td className="px-4 py-4 whitespace-nowrap align-middle">
+                        <div className="flex items-center gap-3">
+                          <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+                            <User size={16} className="text-secondary" />
+                          </div>
+                          <div>
+                            <div className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{c.name}</div>
+                            <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '0.125rem' }}>ID: {c.id.split('-')[0]}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap align-middle">
+                        <div className="flex" style={{ flexDirection: 'column', gap: '0.35rem' }}>
+                          {c.email && (
+                            <div className="flex items-center gap-2 text-secondary" style={{ fontSize: '0.85rem' }}>
+                              <Mail size={14} className="text-muted" /> {c.email}
+                            </div>
                           )}
-                          {canDeactivate && (
-                            <motion.button
-                              className="button danger small"
-                              onClick={() => handleDeactivate(c)}
-                              whileTap={{ scale: 0.95 }}
-                              title="Deactivate client"
-                            >
-                              <Trash2 size={14} />
-                            </motion.button>
+                          {c.phone && (
+                            <div className="flex items-center gap-2 text-secondary" style={{ fontSize: '0.85rem' }}>
+                              <Phone size={14} className="text-muted" /> {c.phone}
+                            </div>
                           )}
-                        </>
+                          {!c.email && !c.phone && <span className="text-muted" style={{ fontSize: '0.85rem' }}>No contact info</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap align-middle">
+                        <span className={`status-badge ${isInactive ? 'cancelled' : 'authorised'}`}>
+                          {isInactive ? 'INACTIVE' : 'ACTIVE'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap align-middle text-secondary" style={{ fontSize: '0.875rem' }}>
+                        {new Date(c.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </td>
+                      {(canEdit || canDeactivate) && (
+                        <td className="px-4 py-4 whitespace-nowrap align-middle text-right">
+                          <div className="flex items-center gap-2" style={{ justifyContent: 'flex-end' }}>
+                            {isInactive ? (
+                              canDeactivate && (
+                                <motion.button
+                                  className="button secondary small"
+                                  onClick={() => handleReactivate(c)}
+                                  whileTap={{ scale: 0.95 }}
+                                  title="Reactivate client"
+                                >
+                                  <RotateCcw size={14} /> Reactivate
+                                </motion.button>
+                              )
+                            ) : (
+                              <>
+                                {canEdit && (
+                                  <motion.button
+                                    className="button secondary small"
+                                    onClick={() => openEdit(c)}
+                                    whileTap={{ scale: 0.95 }}
+                                    title="Edit client"
+                                  >
+                                    <Edit size={14} /> Edit
+                                  </motion.button>
+                                )}
+                                {canDeactivate && (
+                                  <motion.button
+                                    className="button danger small"
+                                    onClick={() => handleDeactivate(c)}
+                                    whileTap={{ scale: 0.95 }}
+                                    title="Deactivate client"
+                                  >
+                                    <Trash2 size={14} />
+                                  </motion.button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </td>
                       )}
+                    </motion.tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={(canEdit || canDeactivate) ? 5 : 4} className="px-4 py-10 text-center text-secondary">
+                    <div className="empty-state" style={{ border: 'none', padding: 0 }}>
+                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg)', borderRadius: '50%', marginBottom: 'var(--space-md)' }}>
+                        <User size={32} className="text-muted" />
+                      </div>
+                      <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No clients found</p>
+                      <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
+                        {searchQuery ? "Try adjusting your search query." : "Add a client to get started."}
+                      </p>
                     </div>
-                  )}
-                </motion.li>
-                );
-              })
-            ) : (
-              <motion.li variants={listItem} style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>
-                <div className="empty-state" style={{ border: 'none', padding: 0 }}>
-                  <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg)', borderRadius: '50%', marginBottom: 'var(--space-md)' }}>
-                    <User size={32} className="text-muted" />
-                  </div>
-                  <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No clients found</p>
-                  <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
-                    {searchQuery ? "Try adjusting your search query." : "Add a client to get started."}
-                  </p>
-                </div>
-              </motion.li>
-            )}
-          </motion.ul>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
     </motion.div>
