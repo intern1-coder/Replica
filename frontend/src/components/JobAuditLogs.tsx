@@ -279,6 +279,10 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
 
       {isLoading && !error ? (
         <p>Loading audit trail...</p>
+      ) : !error && logs.length === 0 ? (
+        <p className="text-secondary" style={{ fontSize: '0.875rem', margin: 0 }}>
+          No audit events found for this job yet.
+        </p>
       ) : !error && (
         <div className="audit-trail-list">
           {logs.map((log) => {
@@ -338,7 +342,6 @@ export function JobAuditLogs({ jobId }: { jobId: string }) {
               </div>
             );
           })}
-          {logs.length === 0 && <p className="text-secondary empty-state" style={{ border: 'none' }}>No audit events found.</p>}
         </div>
       )}
     </div>

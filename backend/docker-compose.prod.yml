@@ -1,15 +1,17 @@
+name: affinity-dummy
+
 services:
   db:
     image: postgres:15-alpine
-    container_name: affinity_db
-    restart: always
+    container_name: affinity_dummy_db
+    restart: "no"
     env_file: .env
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dummy-password
+      POSTGRES_DB: affinity_dummy
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_dummy:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -17,32 +19,36 @@ services:
       retries: 5
 
   app_blue:
-    image: ghcr.io/${GHCR_OWNER}/affinity-backend:${IMAGE_TAG:-latest}
-    container_name: affinity_app_blue
-    restart: always
+    build: .
+    image: affinity-backend:dummy
+    container_name: affinity_dummy_app_blue
+    restart: "no"
     env_file: .env
     environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=15
+      NODE_ENV: development
+      ALLOW_PRODUCTION: "false"
+      DATABASE_URL: postgresql://postgres:dummy-password@db:5432/affinity_dummy?schema=public&connection_limit=15
     ports:
-      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:3101:3000"
     depends_on:
       db:
         condition: service_healthy
 
   app_green:
-    image: ghcr.io/${GHCR_OWNER}/affinity-backend:${IMAGE_TAG:-latest}
-    container_name: affinity_app_green
-    restart: always
+    build: .
+    image: affinity-backend:dummy
+    container_name: affinity_dummy_app_green
+    restart: "no"
     env_file: .env
     environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=15
+      NODE_ENV: development
+      ALLOW_PRODUCTION: "false"
+      DATABASE_URL: postgresql://postgres:dummy-password@db:5432/affinity_dummy?schema=public&connection_limit=15
     ports:
-      - "127.0.0.1:3002:3000"
+      - "127.0.0.1:3102:3000"
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
-  pgdata:
+  pgdata_dummy:

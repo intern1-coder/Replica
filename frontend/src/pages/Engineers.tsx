@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { Edit, Trash2, Plus, X, Save, Clock } from 'lucide-react';
 import { EngineerTimesheetModal } from '../components/EngineerTimesheetModal';
+import { DataTablePagination } from '../components/DataTablePagination';
+import { motion } from 'motion/react';
 
 // API shape — hourlyRate comes back as a Prisma Decimal (string) or number.
 interface Engineer {
@@ -26,6 +29,12 @@ export function Engineers() {
   const [engineers, setEngineers] = useState<Engineer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const currentPage = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
+  const pageSize = [10, 25, 50].includes(Number(searchParams.get('limit') ?? '10'))
+    ? Number(searchParams.get('limit') ?? '10')
+    : 10;
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<EngineerForm>(emptyForm);
@@ -34,9 +43,27 @@ export function Engineers() {
   const [formError, setFormError] = useState('');
   const [timesheetFor, setTimesheetFor] = useState<Engineer | null>(null);
 
+  const syncUrlPagination = (nextPage: number, nextSize: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('page', String(nextPage));
+    params.set('limit', String(nextSize));
+    setSearchParams(params, { replace: true });
+  };
+
+  useEffect(() => {
+    const hasPage = searchParams.has('page');
+    const hasLimit = searchParams.has('limit');
+    if (!hasPage || !hasLimit) {
+      const params = new URLSearchParams(searchParams.toString());
+      if (!hasPage) params.set('page', '1');
+      if (!hasLimit) params.set('limit', '10');
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const load = async () => {
     try {
-      const data = await apiFetch('/engineers');
+      const data = await apiFetch('/engineers?limit=500');
       setEngineers(data);
     } catch {
       setError('Failed to load engineers.');
@@ -114,6 +141,13 @@ export function Engineers() {
     }
   };
 
+  const totalItems = engineers.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const paginatedEngineers = useMemo(
+    () => engineers.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [engineers, currentPage, pageSize]
+  );
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -130,43 +164,87 @@ export function Engineers() {
           <p style={{ padding: 'var(--space-md)' }}>Loading…</p>
         ) : (
           <>
-            <div className="list-header list-cols-engineers">
-              <div>Name</div>
-              <div>Phone</div>
-              <div>Email</div>
-              <div style={{ textAlign: 'right' }}>Hourly Rate</div>
-              <div style={{ textAlign: 'right' }}>Actions</div>
+            <div className="table-scroll">
+              <table className="engineers-table min-w-full divide-y divide-border">
+              <thead>
+                <tr>
+                  <th className="w-[35%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Name
+                  </th>
+                  <th className="w-[20%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Phone
+                  </th>
+                  <th className="w-[20%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Email
+                  </th>
+                  <th className="w-[15%] px-4 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Hourly Rate
+                  </th>
+                  <th className="w-[10%] px-4 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {paginatedEngineers.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-secondary whitespace-nowrap">
+                      <div className="empty-state">
+                        <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg)', borderRadius: '50%', marginBottom: 'var(--space-md)' }}>
+                          <Plus size={32} className="text-muted" />
+                        </div>
+                        <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No engineers yet</p>
+                        <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
+                          Click "Add Engineer" to get started.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedEngineers.map((eng) => (
+                    <motion.tr
+                      key={eng.id}
+                      className="cursor-pointer hover:bg-gray-50/80 dark:hover:bg-zinc-900/50 transition-colors"
+                    >
+                      <td className="px-4 py-4 whitespace-nowrap align-middle">
+                        <div className="font-medium">{eng.name}</div>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap align-middle">
+                        <span className="text-secondary">{eng.phone || '—'}</span>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap align-middle">
+                        <span className="text-secondary" title={eng.email || ''}>{eng.email || '—'}</span>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap align-middle text-right tabular-nums">
+                        {eng.hourlyRate != null ? `£${Number(eng.hourlyRate).toFixed(2)}/hr` : '—'}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap align-middle text-right">
+                        <div className="list-cell-action flex flex-row items-center gap-2" style={{ justifyContent: 'flex-end' }}>
+                          <button onClick={() => setTimesheetFor(eng)} className="button secondary small flex items-center gap-1">
+                            <Clock size={12} /> Timesheet
+                          </button>
+                          <button onClick={() => openEdit(eng)} className="button secondary small flex items-center gap-1">
+                            <Edit size={12} /> Edit
+                          </button>
+                          <button onClick={() => handleDeactivate(eng.id)} className="button danger small flex items-center gap-1">
+                            <Trash2 size={12} /> Deactivate
+                          </button>
+                        </div>
+                      </td>
+                    </motion.tr>
+                  ))
+                )}
+              </tbody>
+              </table>
             </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {engineers.length === 0 && (
-                <li className="empty-state text-center" style={{ padding: 'var(--space-xl)' }}>
-                  No engineers yet. Click &quot;Add Engineer&quot; to get started.
-                </li>
-              )}
-              {engineers.map((eng) => (
-                <li key={eng.id} className="list-row list-cols-engineers">
-                  <div className="font-medium" data-label="Name">{eng.name}</div>
-                  <div className="text-secondary" data-label="Phone">{eng.phone || '—'}</div>
-                  <div className="text-secondary" data-label="Email">{eng.email || '—'}</div>
-                  <div className="tabular-nums" data-label="Hourly Rate">
-                    {eng.hourlyRate != null ? `£${Number(eng.hourlyRate).toFixed(2)}/hr` : '—'}
-                  </div>
-                  <div className="list-cell-action" data-label="Actions">
-                    <div className="flex gap-2">
-                      <button onClick={() => setTimesheetFor(eng)} className="button secondary small flex items-center gap-1">
-                        <Clock size={12} /> Timesheet
-                      </button>
-                      <button onClick={() => openEdit(eng)} className="button secondary small flex items-center gap-1">
-                        <Edit size={12} /> Edit
-                      </button>
-                      <button onClick={() => handleDeactivate(eng.id)} className="button danger small flex items-center gap-1">
-                        <Trash2 size={12} /> Deactivate
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              pageSize={pageSize}
+              onPageChange={(page) => syncUrlPagination(page, pageSize)}
+              onPageSizeChange={(size) => syncUrlPagination(1, size)}
+            />
           </>
         )}
       </div>

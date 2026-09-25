@@ -127,7 +127,7 @@ STORAGE_SECRET_ACCESS_KEY=<iam-secret-access-key>
 ALERT_EMAIL=ops@yourdomain.com
 
 # Admin bootstrap (scripts/bootstrap-users.ts) — server only, never commit real passwords
-SUPER_ADMIN_EMAIL=it@vlookup.co.in
+SUPER_ADMIN_EMAIL=admin@example.local
 SUPER_ADMIN_PASSWORD=<super-admin-password-min-8-chars>
 SUPER_ADMIN_NAME=Developer Admin
 CLIENT_ADMIN_EMAIL=fahd@affinityproperty.co.uk
@@ -182,7 +182,7 @@ docker compose exec app npx tsx scripts/bootstrap-users.ts
 Expected output:
 
 ```
-✓ Super Admin: it@vlookup.co.in (SUPER_ADMIN)
+✓ Super Admin: admin@example.local (SUPER_ADMIN)
 ✓ Client Admin: fahd@affinityproperty.co.uk (ADMIN)
 Bootstrap complete.
 ```

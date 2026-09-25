@@ -97,6 +97,10 @@ const config = {
 // https, otherwise one-time login/reset tokens would travel over plaintext.
 // Fail fast at startup rather than silently emailing insecure links.
 if (config.env === 'production') {
+  if (process.env.ALLOW_PRODUCTION !== 'true') {
+    throw new Error('Production mode is disabled. Set ALLOW_PRODUCTION=true only for an intentional production deployment.');
+  }
+
   for (const [name, value] of [
     ['FRONTEND_URL', config.frontendUrl],
     ['APP_URL', config.magicLink.appUrl],

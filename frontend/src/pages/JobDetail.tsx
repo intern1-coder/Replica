@@ -229,7 +229,7 @@ export function JobDetail() {
       <div className="section-card flex justify-between items-center" style={{ flexWrap: 'wrap', gap: 'var(--space-md)' }}>
         <div>
           <h2 className="flex items-center gap-2" style={{ margin: 0, marginBottom: 'var(--space-xs)' }}>
-            {job.sequence}
+            Job #{job.sequence}
             <span className={`status-badge ${job.status.toLowerCase()}`}>
               {job.status.replace(/_/g, ' ')}
             </span>
@@ -267,7 +267,7 @@ export function JobDetail() {
                 key={nextStatus}
                 onClick={() => setConfirmTransition({ status: nextStatus, label })}
                 disabled={isUpdatingStatus || conflictError}
-                className={`button ${nextStatus === 'CANCELLED' ? 'danger' : 'primary'}`}
+                className={`button ${nextStatus === 'CANCELLED' ? 'secondary' : 'primary'}`}
               >
                 {label}
               </button>
@@ -316,7 +316,7 @@ export function JobDetail() {
               <button onClick={() => setConfirmTransition(null)} className="button secondary" disabled={isUpdatingStatus}>Cancel</button>
               <button
                 onClick={() => { const status = confirmTransition.status; setConfirmTransition(null); handleStatusChange(status); }}
-                className={`button ${confirmTransition.status === 'CANCELLED' ? 'danger' : 'primary'}`}
+                className={`button ${confirmTransition.status === 'CANCELLED' ? 'secondary' : 'primary'}`}
                 disabled={isUpdatingStatus}
               >
                 {isUpdatingStatus ? 'Updating...' : confirmTransition.label}

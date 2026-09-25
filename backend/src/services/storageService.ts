@@ -58,6 +58,23 @@ export async function getMediaSignedUrl(storageKey: string, download: boolean = 
   });
 }
 
+/** Reads a stored object into memory for trusted server-side attachments. */
+export async function getMediaBuffer(storageKey: string): Promise<Buffer> {
+  if (usesLocalStorage()) {
+    return fs.readFile(path.join(__dirname, '../../uploads', storageKey));
+  }
+
+  const response = await s3.send(
+    new GetObjectCommand({
+      Bucket: config.storage.bucket,
+      Key: storageKey,
+    })
+  );
+
+  if (!response.Body) throw new Error(`Stored object has no body: ${storageKey}`);
+  return Buffer.from(await response.Body.transformToByteArray());
+}
+
 /**
  * Permanently deletes a media object from storage (local disk or S3).
  * Called when a JobMedia record is deleted — keeps storage clean.

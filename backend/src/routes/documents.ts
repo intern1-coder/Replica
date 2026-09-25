@@ -16,6 +16,8 @@ import { formatJobNumber, formatPropertyAddress } from '../lib/utils';
 import logger from '../lib/logger';
 import { emitToJob } from '../lib/socket';
 import { getMediaSignedUrl } from '../services/storageService';
+import { getMediaBuffer } from '../services/storageService';
+import { sendReportEmail } from '../services/emailService';
 import { getBase64Images } from '../services/imageEmbedder';
 import { getVatRate } from './settings';
 import juice from 'juice';
@@ -78,6 +80,67 @@ function templateNameForDocType(type: DocumentType): string {
     case DocumentType.COMPLETION_REPORT: return 'completion_report';
     default: return '';
   }
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatInternalWorkLogsHtml(workLogs: Array<any>): string {
+  if (workLogs.length === 0) return '';
+
+  const rows = workLogs.map((workLog) => `
+    <tr>
+      <td style="border:1px solid #d1d5db;padding:8px 12px;">${escapeHtml(workLog.contractor?.name || 'Unknown')}</td>
+      <td style="border:1px solid #d1d5db;padding:8px 12px;">${escapeHtml(new Date(workLog.workDate).toLocaleDateString('en-GB'))}</td>
+      <td style="border:1px solid #d1d5db;padding:8px 12px;text-align:right;">${escapeHtml(workLog.hoursWorked)} hours</td>
+      <td style="border:1px solid #d1d5db;padding:8px 12px;text-align:right;">£${escapeHtml(Number(workLog.rateApplied).toFixed(2))}</td>
+      <td style="border:1px solid #d1d5db;padding:8px 12px;text-align:right;">£${escapeHtml(Number(workLog.materialCost).toFixed(2))}</td>
+      <td style="border:1px solid #d1d5db;padding:8px 12px;">${escapeHtml(workLog.notes || '')}</td>
+    </tr>`).join('');
+
+  return `
+    <section id="working-logs" style="margin-top:32px;border-top:2px solid #e5e7eb;padding-top:16px;font-family:Arial,sans-serif;color:#374151;">
+      <div style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:600;margin-bottom:8px;">Included in Email Only</div>
+      <h2 style="font-size:16px;margin:0 0 8px;">Working Logs</h2>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 12px;">For internal reference only. This section is not included in the attached PDF.</p>
+      <table style="border-collapse:collapse;width:100%;font-size:12px;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="border:1px solid #d1d5db;padding:8px 12px;text-align:left;">Engineer</th>
+            <th style="border:1px solid #d1d5db;padding:8px 12px;text-align:left;">Work date</th>
+            <th style="border:1px solid #d1d5db;padding:8px 12px;text-align:right;">Hours</th>
+            <th style="border:1px solid #d1d5db;padding:8px 12px;text-align:right;">Rate</th>
+            <th style="border:1px solid #d1d5db;padding:8px 12px;text-align:right;">Materials</th>
+            <th style="border:1px solid #d1d5db;padding:8px 12px;text-align:left;">Notes</th>
+          </tr>
+        </thead>
+        <tbody>${rows}
+        </tbody>
+      </table>
+    </section>`;
+}
+
+async function buildDocumentEmailHtml(doc: { type: DocumentType; jobId: string; snapshotData: any }): Promise<string> {
+  const templateName = templateNameForDocType(doc.type);
+  const rawHtml = await renderTemplate(templateName, doc.snapshotData);
+  let html = juice(rawHtml);
+
+  if (doc.type === DocumentType.QUOTE) {
+    const workLogs = await prisma.workLog.findMany({
+      where: { jobId: doc.jobId, deletedAt: null },
+      include: { contractor: { select: { name: true } } },
+      orderBy: { workDate: 'asc' },
+    });
+    html = html.replace('</body>', `${formatInternalWorkLogsHtml(workLogs)}</body>`);
+  }
+
+  return html;
 }
 
 // ── POST /api/documents/quote ──────────────────────────────────────────────────
@@ -496,12 +559,58 @@ router.get(
         return;
       }
 
-      const rawHtml = await renderTemplate(templateName, doc.snapshotData);
       // Most email clients strip <style> blocks on paste — inline the rules
       // onto each element so tables, borders and colours survive.
-      const html = juice(rawHtml);
+      const html = await buildDocumentEmailHtml(doc);
 
       res.json({ html });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── POST /api/documents/:id/email ─────────────────────────────────────────────
+// Sends the clean stored PDF as an attachment. Internal work logs are added
+// to the email body only, never to the PDF or persisted document snapshot.
+router.post(
+  '/:id/email',
+  requirePermission('documents:create'),
+  [
+    param('id').isUUID(),
+    body('toEmail').isEmail().normalizeEmail(),
+    body('toName').optional().isString().trim().isLength({ max: 255 }),
+  ],
+  validate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const doc = await prisma.generatedDocument.findUnique({
+        where: { id: req.params['id'] },
+      });
+
+      if (!doc) {
+        res.status(404).json({ error: 'Not Found', message: 'Document not found.' });
+        return;
+      }
+
+      const html = await buildDocumentEmailHtml(doc);
+      const pdfBuffer = await getMediaBuffer(doc.storageKey);
+      const filename = buildDocumentFilename(doc);
+      const reportName = doc.type.replace(/_/g, ' ');
+
+      await sendReportEmail({
+        toEmail: req.body.toEmail,
+        toName: req.body.toName,
+        subject: `${reportName} - ${doc.snapshotData && typeof doc.snapshotData === 'object' && 'jobNumber' in doc.snapshotData ? doc.snapshotData.jobNumber : 'Job'}`,
+        html,
+        attachment: {
+          filename,
+          content: pdfBuffer,
+          contentType: 'application/pdf',
+        },
+      });
+
+      res.json({ message: 'Report email sent.' });
     } catch (err) {
       next(err);
     }

@@ -333,7 +333,7 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
             {...reactSelectMenuProps}
           />
         </div>
-        <div className="form-row" style={{ flex: '1 1 80px' }}>
+        <div className="form-row" style={{ flex: '1 1 110px' }}>
           <label className="form-label">Rate (£)</label>
           <input type="number" step="0.01" min="0" max="10000" value={hourlyRate} onChange={e => setHourlyRate(e.target.value ? Number(e.target.value) : '')} style={{ width: '100%' }} placeholder="Auto" />
         </div>

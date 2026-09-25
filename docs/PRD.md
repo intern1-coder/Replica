@@ -46,7 +46,7 @@ Nothing changes in the system, and no communication leaves it, without an explic
 
 | Account | Role | Purpose |
 |---|---|---|
-| Developer (`it@vlookup.co.in`) | `SUPER_ADMIN` | Full access; hidden from client team lists |
+| Developer (`admin@example.local`) | `SUPER_ADMIN` | Full access; hidden from client team lists |
 | Client lead (`fahd@affinityproperty.co.uk`) | `ADMIN` | Team dashboard; manages PM/ACCOUNTS/CONTRACTOR |
 
 **Env vs database:** `.env` bootstrap vars are for the bootstrap script only. All logins and password changes use the **database** as source of truth.

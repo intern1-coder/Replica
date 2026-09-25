@@ -175,6 +175,107 @@ router.get(
   }
 );
 
+// ── GET /api/jobs/counts ──────────────────────────────────────────────────────
+// Aggregated pipeline counts for the Jobs page chips/tabs and the Dashboard
+// breakdown: per-status totals, tab totals, stalled active jobs (no update in
+// STALLED_DAYS+ days — any status change bumps updatedAt, so these have held
+// their status at least that long) and 7-day flow (transitions into each
+// status, diffed from Job UPDATE audit snapshots). Registered before GET /:id
+// so Express doesn't match "counts" as an id.
+const STALLED_DAYS = 5;
+const FLOW_WINDOW_DAYS = 7;
+
+function zeroFilledCounts(): Record<string, number> {
+  return Object.fromEntries(Object.values(JobStatus).map((s) => [s, 0]));
+}
+
+router.get(
+  '/counts',
+  requirePermission('jobs:view'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const now = Date.now();
+      const flowSince = new Date(now - FLOW_WINDOW_DAYS * 86400000);
+      const stalledBefore = new Date(now - STALLED_DAYS * 86400000);
+
+      // Single lightweight scan (status/updatedAt/deletedAt only) + audit
+      // window — cheaper and type-safer than Prisma groupBy aggregates.
+      const [rows, recentUpdates] = await prisma.$transaction([
+        prisma.job.findMany({
+          select: { status: true, updatedAt: true, deletedAt: true },
+        }),
+        prisma.auditLog.findMany({
+          where: {
+            entityType: 'Job',
+            action: AuditAction.UPDATE,
+            jobId: { not: null },
+            createdAt: { gte: flowSince },
+          },
+          select: { before: true, after: true },
+        }),
+      ]);
+
+      const byStatus = zeroFilledCounts();
+      const stalled = zeroFilledCounts();
+      let archivedCount = 0;
+      const activeStatuses = new Set<JobStatus>(
+        Object.values(JobStatus).filter(
+          (s) => s !== JobStatus.COMPLETED && s !== JobStatus.CANCELLED
+        )
+      );
+
+      for (const row of rows) {
+        if (row.deletedAt) {
+          archivedCount += 1;
+          continue;
+        }
+        byStatus[row.status] += 1;
+        // Any status change bumps updatedAt, so a stale timestamp means the
+        // job has held this status (untouched) for at least STALLED_DAYS.
+        if (activeStatuses.has(row.status) && row.updatedAt < stalledBefore) {
+          stalled[row.status] += 1;
+        }
+      }
+
+      // Flow = transitions INTO a status (after.status), diffed from audit
+      // snapshots — other job UPDATEs have identical before/after status.
+      const flow7d = zeroFilledCounts();
+      for (const row of recentUpdates) {
+        const before = row.before as { status?: string } | null;
+        const after = row.after as { status?: string } | null;
+        if (
+          before?.status &&
+          after?.status &&
+          before.status !== after.status &&
+          after.status in byStatus
+        ) {
+          flow7d[after.status] += 1;
+        }
+      }
+
+      const activeCount = Object.values(JobStatus)
+        .filter((s) => s !== JobStatus.COMPLETED && s !== JobStatus.CANCELLED)
+        .reduce((sum, s) => sum + byStatus[s], 0);
+
+      res.json({
+        byStatus,
+        byTab: {
+          active: activeCount,
+          completed: byStatus[JobStatus.COMPLETED],
+          cancelled: byStatus[JobStatus.CANCELLED],
+          // Same gate as the Archived tab — hide existence from users without delete.
+          archived: req.user!.can('jobs:delete') ? archivedCount : 0,
+        },
+        stalled,
+        flow7d,
+        stalledDays: STALLED_DAYS,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ── GET /api/jobs/:id ──────────────────────────────────────────────────────────
 
 router.get(

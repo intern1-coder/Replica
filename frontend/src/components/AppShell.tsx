@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Outlet, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { apiFetch } from '../utils/api';
+import { debounce } from '../utils/refetch';
 import {
   LogOut,
   LayoutDashboard,
@@ -97,7 +99,7 @@ function AccountMenuPanel({
 }
 
 export function AppShell() {
-  const { isAuthenticated, logout, user, can } = useAuth();
+  const { isAuthenticated, logout, user, can, socket } = useAuth();
   const location = useLocation();
   const [theme, setTheme] = useState<'light' | 'dark'>(readStoredTheme);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readSidebarCollapsed);
@@ -113,8 +115,46 @@ export function AppShell() {
   const displayName = user?.name ?? 'Workspace';
   const initials = getInitials(user?.name);
   const isDashboard = location.pathname === '/';
+  const isWide = location.pathname === '/team' || location.pathname === '/engineers';
   const canUsersView = can('users:view');
   const canEngineersView = can('engineers:view');
+
+  const [activeJobCount, setActiveJobCount] = useState<number | null>(null);
+
+  const loadActiveJobCount = useCallback(async () => {
+    try {
+      const data = await apiFetch('/jobs/counts');
+      setActiveJobCount(data.byTab.active);
+    } catch {
+      // Badge is progressive enhancement — the nav works without it.
+    }
+  }, []);
+
+  const debouncedCountRefresh = useMemo(
+    () => debounce(() => loadActiveJobCount(), 300),
+    [loadActiveJobCount]
+  );
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    async function initBadge() {
+      await loadActiveJobCount();
+    }
+    initBadge();
+  }, [isAuthenticated, loadActiveJobCount]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleJobChange = () => debouncedCountRefresh();
+    socket.on('job:statusChanged', handleJobChange);
+    socket.on('job:created', handleJobChange);
+    socket.on('job:deleted', handleJobChange);
+    return () => {
+      socket.off('job:statusChanged', handleJobChange);
+      socket.off('job:created', handleJobChange);
+      socket.off('job:deleted', handleJobChange);
+    };
+  }, [socket, debouncedCountRefresh]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -288,7 +328,7 @@ export function AppShell() {
         <div className="sidebar-nav">
           <div className="sidebar-section-label">Menu</div>
           <NavLink collapsed={sidebarCollapsed} to="/" icon={<LayoutDashboard size={20} />} label="Overview" />
-          <NavLink collapsed={sidebarCollapsed} to="/jobs" icon={<ClipboardList size={20} />} label="Job Pipeline" />
+          <NavLink collapsed={sidebarCollapsed} to="/jobs" icon={<ClipboardList size={20} />} label="Job Pipeline" badge={isAuthenticated ? activeJobCount : null} />
           <NavLink collapsed={sidebarCollapsed} to="/logistics" icon={<Calendar size={20} />} label="Logistics" />
           <NavLink collapsed={sidebarCollapsed} to="/clients" icon={<Users size={20} />} label="Clients" />
           <NavLink collapsed={sidebarCollapsed} to="/properties" icon={<Building2 size={20} />} label="Properties" />
@@ -367,7 +407,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <div className={`main-content-inner${isDashboard ? ' main-content-inner--dashboard' : ''}`}>
+        <div className={`main-content-inner${isDashboard ? ' main-content-inner--dashboard' : ''}${isWide ? ' main-content-inner--wide' : ''}`}>
           <Outlet />
         </div>
       </main>
@@ -382,11 +422,13 @@ function NavLink({
   icon,
   label,
   collapsed,
+  badge,
 }: {
   to: string;
   icon: React.ReactNode;
   label: string;
   collapsed: boolean;
+  badge?: number | null;
 }) {
   const location = useLocation();
   const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
@@ -395,10 +437,13 @@ function NavLink({
     <Link
       to={to}
       className={`sidebar-nav-link ${isActive ? 'active' : ''}`}
-      title={collapsed ? label : undefined}
+      title={collapsed ? (badge != null ? `${label} (${badge})` : label) : undefined}
     >
       {icon}
       <span className="sidebar-nav-link-label">{label}</span>
+      {badge != null && !collapsed && (
+        <span className="sidebar-nav-badge">{badge}</span>
+      )}
     </Link>
   );
 }
