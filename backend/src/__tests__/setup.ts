@@ -7,6 +7,9 @@ process.env.SMTP_HOST = 'smtp.test.com';
 process.env.SMTP_USER = 'test';
 process.env.SMTP_PASS = 'test';
 process.env.OCI_ENDPOINT = 'https://test.compat.objectstorage.us-ashburn-1.oraclecloud.com';
+// config resolves the bucket via STORAGE_BUCKET_NAME first, then OCI_BUCKET_NAME —
+// pin both so a real .env (STORAGE_BUCKET_NAME=...) can't leak into unit tests.
+process.env.STORAGE_BUCKET_NAME = 'test-bucket';
 process.env.OCI_BUCKET_NAME = 'test-bucket';
 process.env.OCI_ACCESS_KEY_ID = 'test-key';
 process.env.OCI_SECRET_ACCESS_KEY = 'test-secret';

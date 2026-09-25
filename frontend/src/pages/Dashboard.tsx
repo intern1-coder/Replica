@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Users, Briefcase, TrendingUp, Building2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
+import { debounce } from '../utils/refetch';
 import { useAuth } from '../contexts/AuthContext';
+import type { JobCounts } from './JobList';
 
 interface DailyTasks {
   jobsScheduledToday: Array<{
@@ -32,12 +34,22 @@ interface WorkLog {
 
 const DAILY_TASKS_ROLES = new Set(['PM', 'ADMIN', 'OWNER', 'SUPER_ADMIN']);
 
+const PIPELINE_STATUSES = [
+  'TO_BE_CHECKED',
+  'CHECKED',
+  'QUOTED',
+  'AUTHORISED',
+  'PENDING_INVOICE',
+  'COMPLETED',
+  'CANCELLED',
+] as const;
+
 function formatStatus(status: string): string {
   return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function Dashboard() {
-  const { user } = useAuth();
+  const { user, socket } = useAuth();
   const canViewDailyTasks = user?.role ? DAILY_TASKS_ROLES.has(user.role) : false;
 
   const [stats, setStats] = useState({
@@ -48,13 +60,14 @@ export function Dashboard() {
   });
   const [recentLogs, setRecentLogs] = useState<WorkLog[]>([]);
   const [dailyTasks, setDailyTasks] = useState<DailyTasks | null>(null);
+  const [counts, setCounts] = useState<JobCounts | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function loadData() {
       try {
         const fetches: Promise<unknown>[] = [
-          apiFetch('/jobs?limit=50'),
+          apiFetch('/jobs/counts'),
           apiFetch('/clients?limit=50'),
           apiFetch('/properties?limit=50'),
           apiFetch('/work-logs?limit=8'),
@@ -65,20 +78,19 @@ export function Dashboard() {
         }
 
         const results = await Promise.all(fetches);
-        const [jobsRes, clientsRes, propsRes, logsRes, tasksRes] = results as [
-          { data?: unknown[] },
+        const [countsRes, clientsRes, propsRes, logsRes, tasksRes] = results as [
+          JobCounts,
           { data?: unknown[] },
           { data?: unknown[] },
           { data?: WorkLog[] },
           DailyTasks?,
         ];
 
-        const jobs = (jobsRes.data || []) as Array<{ status: string }>;
-        const activeJobs = jobs.filter((j) => j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
-
+        setCounts(countsRes);
         setStats({
-          jobsCount: jobs.length,
-          activeJobsCount: activeJobs.length,
+          jobsCount:
+            countsRes.byTab.active + countsRes.byTab.completed + countsRes.byTab.cancelled,
+          activeJobsCount: countsRes.byTab.active,
           clientsCount: (clientsRes.data || []).length,
           propertiesCount: (propsRes.data || []).length,
         });
@@ -96,6 +108,40 @@ export function Dashboard() {
     }
     loadData();
   }, [canViewDailyTasks]);
+
+  // Background refresh of pipeline bars / flow deltas / stalled note when any
+  // job changes elsewhere — never touches isLoading (no loading swap per AGENTS.md).
+  const refreshCounts = useCallback(async () => {
+    try {
+      const res: JobCounts = await apiFetch('/jobs/counts');
+      setCounts(res);
+      setStats((prev) => ({
+        ...prev,
+        jobsCount: res.byTab.active + res.byTab.completed + res.byTab.cancelled,
+        activeJobsCount: res.byTab.active,
+      }));
+    } catch {
+      // Counts are progressive enhancement — keep the last good payload.
+    }
+  }, []);
+
+  const debouncedCountsRefresh = useMemo(
+    () => debounce(() => refreshCounts(), 300),
+    [refreshCounts]
+  );
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleJobChange = () => debouncedCountsRefresh();
+    socket.on('job:statusChanged', handleJobChange);
+    socket.on('job:created', handleJobChange);
+    socket.on('job:deleted', handleJobChange);
+    return () => {
+      socket.off('job:statusChanged', handleJobChange);
+      socket.off('job:created', handleJobChange);
+      socket.off('job:deleted', handleJobChange);
+    };
+  }, [socket, debouncedCountsRefresh]);
 
   const container = {
     hidden: { opacity: 0 },
@@ -116,6 +162,13 @@ export function Dashboard() {
 
   const scheduledToday = dailyTasks?.jobsScheduledToday ?? [];
   const needsAttention = dailyTasks?.actionRequired?.toBeChecked ?? [];
+
+  const pipelineMax = counts
+    ? Math.max(...Object.values(counts.byStatus), 1)
+    : 1;
+  const stalledTotal = counts
+    ? Object.values(counts.stalled).reduce((sum, n) => sum + n, 0)
+    : 0;
 
   return (
     <motion.div
@@ -187,6 +240,50 @@ export function Dashboard() {
             <div className="stat-card-value">{isLoading ? '-' : stats.propertiesCount}</div>
           </motion.div>
         </div>
+
+        {counts && (
+          <motion.div variants={item} className="section-card pipeline-panel">
+            <div className="dashboard-panel-header">
+              <h3 className="dashboard-panel-title">Job Pipeline</h3>
+              <Link to="/jobs">
+                <button type="button" className="button secondary small">View all jobs</button>
+              </Link>
+            </div>
+
+            <div className="pipeline-rows">
+              {PIPELINE_STATUSES.map((status) => {
+                const count = counts.byStatus[status];
+                const flow = counts.flow7d[status];
+                return (
+                  <div key={status} className={`pipeline-row ${status.toLowerCase()}`}>
+                    <span className="pipeline-label">{formatStatus(status)}</span>
+                    <div
+                      className="pipeline-track"
+                      role="presentation"
+                    >
+                      <div
+                        className="pipeline-bar"
+                        style={{ width: `${Math.round((count / pipelineMax) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="pipeline-count tabular-nums">{count}</span>
+                    <span className="pipeline-delta">
+                      {flow > 0 ? `↑${flow} this week` : ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {stalledTotal > 0 && (
+              <p className="pipeline-stalled-note">
+                {stalledTotal} {stalledTotal === 1 ? 'job has' : 'jobs have'} been untouched
+                for {counts.stalledDays}+ days.{' '}
+                <Link to="/jobs">Review stalled jobs</Link>
+              </p>
+            )}
+          </motion.div>
+        )}
 
         {canViewDailyTasks && (
           <div className="dashboard-bento">

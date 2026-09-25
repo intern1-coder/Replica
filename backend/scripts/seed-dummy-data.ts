@@ -9,10 +9,19 @@
  * running this again after adding new entries to the lists below only
  * inserts what's missing instead of duplicating everything.
  */
-import { JobStatus, PrismaClient } from '@prisma/client';
+import { JobStatus, PrismaClient, Role } from '@prisma/client';
+import bcrypt from 'bcrypt';
 import { normalizeAddress } from '../src/lib/utils';
 
 const prisma = new PrismaClient();
+
+const DEMO_PASSWORD = 'DemoUser@123';
+
+const DEMO_USERS: Array<{ email: string; name: string; role: Role }> = [
+  { email: 'pm@affinityproperty.co.uk', name: 'Priya Sharma', role: Role.PM },
+  { email: 'accounts@affinityproperty.co.uk', name: 'Rachel Okonkwo', role: Role.ACCOUNTS },
+  { email: 'contractor@affinityproperty.co.uk', name: 'Dean Walker', role: Role.CONTRACTOR },
+];
 
 const CLIENTS = [
   { name: 'Harbour Estates Ltd', email: 'accounts@harbourestates.co.uk', phone: '0207 123 4567' },
@@ -70,6 +79,14 @@ interface JobSpec {
   workLogs?: WorkLogSpec[];
   /** If set, the job gets a future Job Date this many days out (for the Logistics "Upcoming" view). */
   scheduledInDays?: number;
+  /** Backdate updatedAt this many days after create — makes the job count as stalled (5+ days untouched). */
+  updatedDaysAgo?: number;
+  /** Seed as an archived (soft-deleted) job so the Archived tab has data. */
+  archived?: boolean;
+  /** Seed a 7-day audit-log status transition INTO this job's status (drives Dashboard "this week" deltas). */
+  flowFrom?: JobStatus;
+  /** How many days ago the flow transition happened (default 2; must be < 7). */
+  flowDaysAgo?: number;
 }
 
 const JOB_SPECS: JobSpec[] = [
@@ -200,6 +217,133 @@ const JOB_SPECS: JobSpec[] = [
       { engineerName: 'Sofia', hoursWorked: 7, daysAgo: 9, notes: 'Consumer unit replaced and tested.' },
     ],
   },
+  // ── Pipeline-count demo data: status spread + stalled (updatedAt 5+ days)
+  // so the Jobs chips / Dashboard bars and "untouched" callout have signal. ──
+  {
+    status: 'TO_BE_CHECKED',
+    description: 'Tenant reports damp patch spreading behind wardrobe.',
+    updatedDaysAgo: 8,
+  },
+  {
+    status: 'TO_BE_CHECKED',
+    description: 'Intercom buzzer not working at communal entrance.',
+    updatedDaysAgo: 6,
+  },
+  {
+    status: 'CHECKED',
+    description: 'Shower mixer tap dripping — inspected, awaiting quote.',
+    updatedDaysAgo: 7,
+    diagnosticNotes: 'Ceramic cartridge worn; needs replacement.',
+  },
+  {
+    status: 'QUOTED',
+    description: 'Replace cracked shower screen — quote awaiting approval.',
+    quotedValue: 240,
+    updatedDaysAgo: 9,
+  },
+  {
+    status: 'QUOTED',
+    description: 'Regrout bathroom floor tiles — quote sent last week.',
+    quotedValue: 320,
+    updatedDaysAgo: 6,
+  },
+  {
+    status: 'AUTHORISED',
+    description: 'Fix leaking gutter section at rear elevation.',
+    quotedValue: 190,
+    updatedDaysAgo: 7,
+  },
+  {
+    status: 'PENDING_INVOICE',
+    description: 'Replace hallway light fittings x3 — work done, invoice pending.',
+    quotedValue: 150,
+    updatedDaysAgo: 10,
+    completionNotes: 'Three fittings replaced and tested.',
+  },
+  {
+    status: 'TO_BE_CHECKED',
+    description: 'Blocked WC on first floor — urgent callout.',
+  },
+  {
+    status: 'TO_BE_CHECKED',
+    description: 'Front door lock stiff — tenant requesting a service.',
+  },
+  {
+    status: 'CHECKED',
+    description: 'Dishwasher not draining — checked, parts on order.',
+    diagnosticNotes: 'Drain pump impeller fractured.',
+  },
+  {
+    status: 'QUOTED',
+    description: 'Repaint master bedroom after water stain.',
+    quotedValue: 410,
+    flowFrom: 'CHECKED',
+    flowDaysAgo: 3,
+  },
+  {
+    status: 'QUOTED',
+    description: 'Supply and fit new letterbox and escutcheon.',
+    quotedValue: 95,
+    flowFrom: 'CHECKED',
+    flowDaysAgo: 1,
+  },
+  {
+    status: 'AUTHORISED',
+    description: 'Emergency board-up after broken kitchen window.',
+    quotedValue: 275,
+    flowFrom: 'QUOTED',
+    flowDaysAgo: 2,
+  },
+  {
+    status: 'AUTHORISED',
+    description: 'Replace bathroom extractor fan with timer unit.',
+    quotedValue: 145,
+    flowFrom: 'QUOTED',
+    flowDaysAgo: 4,
+  },
+  {
+    status: 'PENDING_INVOICE',
+    description: 'Oven thermostat replacement — completed, ready to invoice.',
+    quotedValue: 210,
+    flowFrom: 'AUTHORISED',
+    flowDaysAgo: 2,
+    completionNotes: 'Thermostat replaced, oven tested to spec.',
+  },
+  {
+    status: 'COMPLETED',
+    description: 'Fit new mains smoke alarm in hallway — signed off.',
+    quotedValue: 75,
+    flowFrom: 'PENDING_INVOICE',
+    flowDaysAgo: 3,
+    completionNotes: 'Alarm fitted and tested.',
+  },
+  {
+    status: 'COMPLETED',
+    description: 'Tap replacement in utility room — signed off.',
+    quotedValue: 130,
+    flowFrom: 'PENDING_INVOICE',
+    flowDaysAgo: 5,
+    completionNotes: 'Quarter-turn tap fitted, no leaks.',
+  },
+  {
+    status: 'CANCELLED',
+    description: 'Loft clearance job — client withdrew after survey.',
+    flowFrom: 'QUOTED',
+    flowDaysAgo: 4,
+  },
+  // ── Archived (soft-deleted) jobs — populate the Archived tab. ──
+  {
+    status: 'TO_BE_CHECKED',
+    description: 'Duplicate job raised in error — archived.',
+    archived: true,
+  },
+  {
+    status: 'COMPLETED',
+    description: 'Superseded maintenance job — archived after merge.',
+    quotedValue: 110,
+    archived: true,
+    completionNotes: 'Merged into a later job.',
+  },
 ];
 
 async function upsertClient(spec: (typeof CLIENTS)[number]) {
@@ -218,8 +362,23 @@ async function upsertEngineer(spec: (typeof ENGINEERS)[number]) {
   return prisma.engineer.create({ data: spec });
 }
 
+async function upsertDemoUsers(): Promise<void> {
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+  for (const spec of DEMO_USERS) {
+    const user = await prisma.user.upsert({
+      where: { email: spec.email },
+      update: { name: spec.name, role: spec.role, passwordHash, deletedAt: null },
+      create: { ...spec, passwordHash, hourlyRate: 0 },
+      select: { email: true, role: true },
+    });
+    console.log(`✓ demo ${user.role}: ${user.email} / ${DEMO_PASSWORD}`);
+  }
+}
+
 async function main() {
   console.log('Seeding dummy data...');
+
+  await upsertDemoUsers();
 
   const loggedBy =
     (await prisma.user.findFirst({ where: { role: 'PM', deletedAt: null } })) ??
@@ -297,9 +456,10 @@ async function main() {
 
     // Idempotent per-job: description text is unique across JOB_SPECS, so
     // re-running the script after adding new specs only creates the new
-    // ones instead of re-inserting (and duplicating) everything.
+    // ones instead of re-inserting (and duplicating) everything. Includes
+    // archived jobs (deletedAt set) so re-runs don't duplicate them.
     const existingJob = await prisma.job.findFirst({
-      where: { description: spec.description, deletedAt: null },
+      where: { description: spec.description },
     });
     if (existingJob) {
       skippedJobs++;
@@ -340,9 +500,39 @@ async function main() {
           spec.status === 'COMPLETED' || spec.status === 'PENDING_INVOICE'
             ? new Date(createdAt.getTime() + 2 * 24 * 60 * 60 * 1000)
             : undefined,
+        deletedAt: spec.archived ? new Date(now - 3 * 24 * 60 * 60 * 1000) : null,
         assignedContractors: { connect: jobEngineers.map((e) => ({ id: e.id })) },
       },
     });
+
+    // Stalled demo: make the job look untouched for N days (updatedAt drives
+    // the stalled count in GET /api/jobs/counts).
+    if (spec.updatedDaysAgo !== undefined) {
+      const backdated = new Date(now - spec.updatedDaysAgo * 24 * 60 * 60 * 1000);
+      await prisma.$executeRaw`UPDATE jobs SET "updatedAt" = ${backdated} WHERE id = ${job.id}`;
+    }
+
+    // Flow demo: a recent status-change audit row so the Dashboard pipeline
+    // shows "↑N this week" deltas (flow7d diffs before.status vs after.status).
+    if (spec.flowFrom && !spec.archived) {
+      const existingFlow = await prisma.auditLog.findFirst({
+        where: { jobId: job.id, action: 'UPDATE', entityType: 'Job' },
+      });
+      if (!existingFlow) {
+        await prisma.auditLog.create({
+          data: {
+            entityType: 'Job',
+            entityId: job.id,
+            action: 'UPDATE',
+            performedById: loggedBy.id,
+            before: { status: spec.flowFrom },
+            after: { status: spec.status },
+            jobId: job.id,
+            createdAt: new Date(now - (spec.flowDaysAgo ?? 2) * 24 * 60 * 60 * 1000),
+          },
+        });
+      }
+    }
 
     if (spec.lineItems?.length) {
       await prisma.jobQuoteLineItem.createMany({

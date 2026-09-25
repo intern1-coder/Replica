@@ -1823,3 +1823,217 @@
     gap: var(--space-xs);
   }
 }
+
+/* -- Job status count chips (Jobs page) ------------------------------------- */
+.status-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xl);
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              background-color var(--duration-fast) var(--ease-out);
+}
+
+.status-chip:hover {
+  background-color: var(--color-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.status-chip:active {
+  transform: scale(0.97);
+}
+
+.status-chip:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.status-chip .chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.45rem;
+  padding: 0 0.4rem;
+  border-radius: var(--radius-pill);
+  background-color: color-mix(in srgb, currentColor 16%, transparent);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.status-chip.selected {
+  background-color: var(--color-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.status-chip.zero {
+  opacity: 0.5;
+}
+
+.status-chip.clear {
+  background-color: var(--color-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+/* -- Tab count pills (segmented control) ------------------------------------ */
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.55rem;
+  min-width: 1.5rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.segment-control button.active .tab-count {
+  background-color: var(--color-bg);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+/* -- Sidebar nav badge ------------------------------------------------------ */
+.sidebar-nav-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.35rem;
+  padding: 0 0.45rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.sidebar-nav-link.active .sidebar-nav-badge {
+  background-color: var(--color-brand-text);
+  border-color: transparent;
+  color: var(--color-brand);
+}
+
+/* -- Dashboard pipeline breakdown ------------------------------------------- */
+.pipeline-panel {
+  margin-bottom: 0;
+}
+
+.pipeline-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.pipeline-row {
+  display: grid;
+  grid-template-columns: 9.5rem 1fr 2.75rem 7.5rem;
+  grid-template-areas: "label track count delta";
+  align-items: center;
+  gap: var(--space-md);
+  font-size: 0.875rem;
+}
+
+.pipeline-label {
+  grid-area: label;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipeline-track {
+  grid-area: track;
+  height: 0.55rem;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.pipeline-bar {
+  height: 100%;
+  border-radius: inherit;
+  background-color: var(--color-text-muted);
+}
+
+.pipeline-row.to_be_checked .pipeline-bar { background-color: var(--status-to-be-checked-text); }
+.pipeline-row.checked .pipeline-bar { background-color: var(--status-checked-text); }
+.pipeline-row.quoted .pipeline-bar { background-color: var(--status-quoted-text); }
+.pipeline-row.authorised .pipeline-bar { background-color: var(--status-authorised-text); }
+.pipeline-row.pending_invoice .pipeline-bar { background-color: var(--status-pending-invoice-text); }
+.pipeline-row.completed .pipeline-bar { background-color: var(--status-completed-text); }
+.pipeline-row.cancelled .pipeline-bar { background-color: var(--status-cancelled-text); }
+
+.pipeline-count {
+  grid-area: count;
+  text-align: right;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline-delta {
+  grid-area: delta;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-success);
+  min-height: 1rem;
+}
+
+.pipeline-stalled-note {
+  margin: var(--space-md) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-warning-bg);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  color: var(--color-text-primary);
+}
+
+.pipeline-stalled-note a {
+  color: inherit;
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  .pipeline-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "label count delta"
+      "track track track";
+    row-gap: 0.3rem;
+  }
+
+  .status-chip {
+    flex: 1 1 auto;
+    justify-content: space-between;
+  }
+}
