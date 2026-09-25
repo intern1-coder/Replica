@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Navigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import { applyPermissionToggle } from '../utils/permissions';
 import { Users, UserPlus, KeyRound, Shield, Trash2, Pencil, X, MailPlus } from 'lucide-react';
 import { motion } from 'motion/react';
+import { DataTablePagination } from '../components/DataTablePagination';
 
 interface Member {
   id: string;
@@ -36,6 +37,12 @@ export function UsersList() {
   const [groups, setGroups] = useState<PermGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const currentPage = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
+  const pageSize = [10, 25, 50].includes(Number(searchParams.get('limit') ?? '10'))
+    ? Number(searchParams.get('limit') ?? '10')
+    : 10;
 
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -47,6 +54,24 @@ export function UsersList() {
   const canEdit = canView && can('users:edit');
   const canCreate = canView && can('users:create');
   const canDelete = canView && can('users:delete');
+
+  const syncUrlPagination = useCallback((nextPage: number, nextSize: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('page', String(nextPage));
+    params.set('limit', String(nextSize));
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const hasPage = searchParams.has('page');
+    const hasLimit = searchParams.has('limit');
+    if (!hasPage || !hasLimit) {
+      const params = new URLSearchParams(searchParams.toString());
+      if (!hasPage) params.set('page', '1');
+      if (!hasLimit) params.set('limit', '10');
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const clearPageState = useCallback(() => {
     setMembers([]);
@@ -101,6 +126,13 @@ export function UsersList() {
   if (sessionReady && !canView) {
     return <Navigate to="/" replace />;
   }
+
+  const totalItems = members.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const paginatedMembers = useMemo(
+    () => members.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [members, currentPage, pageSize]
+  );
 
   const handleResendInvite = async (m: Member) => {
     try {
@@ -173,8 +205,8 @@ export function UsersList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {members.length > 0 ? (
-                  members.map((m) => {
+                {paginatedMembers.length > 0 ? (
+                  paginatedMembers.map((m) => {
                     const overrideCount = m.permissionOverrides
                       ? Object.keys(m.permissionOverrides).length
                       : 0;
@@ -249,6 +281,14 @@ export function UsersList() {
                 )}
               </tbody>
             </table>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              pageSize={pageSize}
+              onPageChange={(page) => syncUrlPagination(page, pageSize)}
+              onPageSizeChange={(size) => syncUrlPagination(1, size)}
+            />
           </div>
         </div>
       )}

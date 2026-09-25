@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
 import { debounce, mergeById, type FetchOptions } from '../utils/refetch';
 import type { Client } from './ClientList';
@@ -9,6 +9,7 @@ import { useReminders } from '../contexts/ReminderContext';
 import { Search, MapPin, User, ExternalLink, Plus, BriefcaseBusiness, Calendar, RotateCcw } from 'lucide-react';
 import { motion, type Variants } from 'motion/react';
 import { useToast } from '../contexts/ToastContext';
+import { DataTablePagination } from '../components/DataTablePagination';
 import Select from 'react-select';
 
 export interface Job {
@@ -68,9 +69,32 @@ export function JobList() {
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [page, setPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
+  const pageSize = [10, 25, 50].includes(Number(searchParams.get('limit') ?? '10'))
+    ? Number(searchParams.get('limit') ?? '10')
+    : 10;
   const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
   const [counts, setCounts] = useState<JobCounts | null>(null);
+
+  const syncUrlPagination = useCallback((nextPage: number, nextSize: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('page', String(nextPage));
+    params.set('limit', String(nextSize));
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const hasPage = searchParams.has('page');
+    const hasLimit = searchParams.has('limit');
+    if (!hasPage || !hasLimit) {
+      const params = new URLSearchParams(searchParams.toString());
+      if (!hasPage) params.set('page', '1');
+      if (!hasLimit) params.set('limit', '10');
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const loadCounts = useCallback(async () => {
     try {
@@ -111,6 +135,7 @@ export function JobList() {
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       params.append('page', page.toString());
+      params.append('limit', pageSize.toString());
 
       const response = await apiFetch(`/jobs?${params.toString()}`);
       const nextJobs: Job[] = response.data || [];
@@ -121,6 +146,7 @@ export function JobList() {
       }
       if (response.meta) {
         setTotalPages(response.meta.totalPages || 1);
+        setTotalItems(response.meta.total || 0);
       }
       setListAnimated(true);
     } catch (err) {
@@ -132,7 +158,7 @@ export function JobList() {
         setIsLoading(false);
       }
     }
-  }, [activeTab, statusFilter, debouncedSearch, startDate, endDate, page]);
+  }, [activeTab, statusFilter, debouncedSearch, startDate, endDate, page, pageSize]);
 
   const debouncedBackgroundLoad = useMemo(
     () => debounce(() => loadJobs({ background: true }), 300),
@@ -225,6 +251,12 @@ export function JobList() {
     show: { opacity: 1, y: 0, transition: { type: 'spring' as const, duration: 0.4, bounce: 0 } }
   };
 
+  useEffect(() => {
+    if (page > 1 && page > totalPages) {
+      syncUrlPagination(totalPages, pageSize);
+    }
+  }, [page, pageSize, totalPages, syncUrlPagination]);
+
   const showInitialLoading = isLoading && jobs.length === 0;
 
   return (
@@ -259,7 +291,7 @@ export function JobList() {
               key={tab}
               type="button"
               className={activeTab === tab ? 'active' : ''}
-              onClick={() => { setActiveTab(tab); setPage(1); }}
+              onClick={() => { setActiveTab(tab); syncUrlPagination(1, pageSize); }}
             >
               {tab === 'active' ? 'Active' : tab === 'completed' ? 'Completed' : tab === 'cancelled' ? 'Not Proceeding' : 'Archived'}
               {counts && (
@@ -286,7 +318,7 @@ export function JobList() {
               value={statusFilter ? STATUS_CHIPS.find(chip => chip.key === statusFilter) : null}
               onChange={ (selectedOption) => {
                 setStatusFilter(selectedOption ? selectedOption.key : '');
-                setPage(1);
+                syncUrlPagination(1, pageSize);
               }}
               placeholder="Filter by status..."
               isClearable={true}
@@ -336,17 +368,17 @@ export function JobList() {
             className="search-input"
             placeholder="Search by Job #, Address, or Client..."
             value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+            onChange={(e) => { setSearchQuery(e.target.value); syncUrlPagination(1, pageSize); }}
           />
         </div>
         <div className="flex items-center gap-2">
           <Calendar size={16} className="text-muted" />
           <label className="form-label" style={{ margin: 0 }}>From:</label>
-          <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} />
+          <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); syncUrlPagination(1, pageSize); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="form-label" style={{ margin: 0 }}>To:</label>
-          <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} />
+          <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); syncUrlPagination(1, pageSize); }} />
         </div>
       </div>
 
@@ -459,27 +491,14 @@ export function JobList() {
             )}
           </motion.ul>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', borderTop: '1px solid var(--color-border)' }}>
-              <motion.button
-                className="button secondary"
-                disabled={page <= 1}
-                onClick={() => setPage(p => p - 1)}
-                whileTap={{ scale: 0.97 }}
-              >
-                Previous
-              </motion.button>
-              <span className="text-secondary" style={{ fontSize: '0.875rem' }}>Page {page} of {totalPages}</span>
-              <motion.button
-                className="button secondary"
-                disabled={page >= totalPages}
-                onClick={() => setPage(p => p + 1)}
-                whileTap={{ scale: 0.97 }}
-              >
-                Next
-              </motion.button>
-            </div>
-          )}
+          <DataTablePagination
+            currentPage={page}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            onPageChange={(nextPage) => syncUrlPagination(nextPage, pageSize)}
+            onPageSizeChange={(size) => syncUrlPagination(1, size)}
+          />
         </div>
       )}
 

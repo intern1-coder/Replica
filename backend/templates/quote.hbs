@@ -48,8 +48,10 @@
       <tr><th>Job Number:</th><td>{{jobNumber}}</td></tr>
     </table>
 
-    <div class="section-title">Reported Issue</div>
-    <p style="padding: 8px 0;">{{description}}</p>
+    <div id="executive-summary">
+      <div class="section-title">Executive Summary</div>
+      <p style="padding: 8px 0;">{{description}}</p>
+    </div>
 
     {{#if lineItems.length}}
     <div class="section-title">Quote Line Items</div>

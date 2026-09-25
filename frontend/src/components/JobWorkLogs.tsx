@@ -4,6 +4,7 @@ import { prependById } from '../utils/refetch';
 import CreatableSelect from 'react-select/creatable';
 import { getReactSelectStyles, reactSelectMenuProps } from '../utils/reactSelectTheme';
 import { useAuth } from '../contexts/AuthContext';
+import { WorkLogEditModal } from './WorkLogEditModal';
 import { Paperclip, Trash2, Download, Copy } from 'lucide-react';
 
 interface WorkLogReceipt {
@@ -49,9 +50,11 @@ function mergePageOneRefresh(prev: WorkLog[], refreshed: WorkLog[]): WorkLog[] {
 export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEngineerAssigned?: () => void }) {
   const { socket, user, can } = useAuth();
   const [workLogs, setWorkLogs] = useState<WorkLog[]>([]);
-  const [_meta, setMeta] = useState<{ total: number; page: number; limit: number; totalPages: number } | null>(null);
+  const [meta, setMeta] = useState<{ total: number; page: number; limit: number; totalPages: number } | null>(null);
+  const [loadedPages, setLoadedPages] = useState(1);
   const [contractors, setContractors] = useState<{ id: string; name: string; hourlyRate?: string | number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [summary, setSummary] = useState<WorkLogSummary | null>(null);
 
@@ -63,7 +66,7 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadingReceiptFor, setUploadingReceiptFor] = useState<string | null>(null);
-  const [_editingLog, setEditingLog] = useState<WorkLog | null>(null);
+  const [editingLog, setEditingLog] = useState<WorkLog | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   const groupedLogs = useMemo(() => {
@@ -102,11 +105,13 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
       setMeta(response.meta);
       if (page === 1) {
         setWorkLogs((prev) => (background ? mergePageOneRefresh(prev, data) : data));
+        setLoadedPages(1);
       } else {
         setWorkLogs((prev) => {
           const existingIds = new Set(prev.map((w) => w.id));
           return [...prev, ...data.filter((w) => !existingIds.has(w.id))];
         });
+        setLoadedPages(page);
       }
     } catch {
       if (!background) setError('Failed to load work logs.');
@@ -117,6 +122,12 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
 
   const loadPageRef = useRef(loadPage);
   loadPageRef.current = loadPage;
+
+  const handleLoadMore = async () => {
+    setIsLoadingMore(true);
+    await loadPage(loadedPages + 1);
+    setIsLoadingMore(false);
+  };
 
   useEffect(() => {
     setIsLoading(true);
@@ -161,7 +172,7 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
@@ -183,7 +194,7 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
       // is a few keystrokes, not a re-selection — this is the flow that used
       // to require the sticky "Edit" state and could overwrite the first log.
       resetCreateForm(true);
-      setMeta((_meta) => (_meta ? { ..._meta, total: _meta.total + 1 } : _meta));
+      setMeta((prev) => (prev ? { ...prev, total: prev.total + 1 } : prev));
       setWorkLogs((prev) => prependById(prev, [created]));
       loadSummary();
       // The backend auto-assigns a not-yet-assigned engineer on first log —
@@ -227,7 +238,11 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
     formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  
+  const handleSaved = (updated: WorkLog) => {
+    setWorkLogs((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
+    loadSummary();
+  };
+
   const handleReceiptUpload = async (logId: string, file: File) => {
     setUploadingReceiptFor(logId);
     setError('');
@@ -270,7 +285,7 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
     try {
       await apiFetch(`/work-logs/${logId}`, { method: 'DELETE' });
       setWorkLogs((prev) => prev.filter((log) => log.id !== logId));
-      setMeta((_meta) => (_meta ? { ..._meta, total: Math.max(0, _meta.total - 1) } : _meta));
+      setMeta((prev) => (prev ? { ...prev, total: Math.max(0, prev.total - 1) } : prev));
       loadSummary();
     } catch (err: any) {
       setError(err.message || 'Failed to delete log');
@@ -286,198 +301,210 @@ export function JobWorkLogs({ jobId, onEngineerAssigned }: { jobId: string; onEn
       {error && <div className="page-error">{error}</div>}
 
       {can('worklogs:create') && (
-        <form ref={formRef} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'row', gap: 'var(--space-md)', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 'var(--space-xl)' }}>
-          <div className="form-row" style={{ flex: '1 1 100px' }}>
-            <label className="form-label">Date *</label>
-            <input type="date" value={workDate} onChange={e => setWorkDate(e.target.value)} required style={{ width: '100%' }} />
-          </div>
-          <div className="form-row" style={{ flex: '1 1 80px' }}>
-            <label className="form-label">Hours *</label>
-            <input type="number" step="0.5" min="0.5" max="24" value={hoursWorked} onChange={e => setHoursWorked(Number(e.target.value))} required style={{ width: '100%' }} />
-          </div>
-          <div className="form-row" style={{ flex: '1 1 180px' }}>
-            <label className="form-label">Contractor *</label>
-            <CreatableSelect
-              isClearable
-              isDisabled={isSubmitting}
-              isLoading={isSubmitting}
-              onChange={(newValue: any) => {
-                setContractorId(newValue ? newValue.value : '');
-                if (newValue) {
-                  const c = contractors.find(ct => ct.id === newValue.value);
-                  setHourlyRate(c?.hourlyRate !== undefined && c?.hourlyRate !== null ? Number(c.hourlyRate) : '');
-                } else {
-                  setHourlyRate('');
-                }
-              }}
-              onCreateOption={handleCreateContractor}
-              options={contractors.map(c => ({ label: c.name, value: c.id }))}
-              value={contractorId ? { label: contractors.find(c => c.id === contractorId)?.name || 'Unknown', value: contractorId } : null}
-              placeholder="Select or type to create..."
-              styles={getReactSelectStyles()}
-              {...reactSelectMenuProps}
-            />
-          </div>
-          <div className="form-row" style={{ flex: '1 1 80px' }}>
-            <label className="form-label">Rate (£)</label>
-            <input type="number" step="0.01" min="0" max="10000" value={hourlyRate} onChange={e => setHourlyRate(e.target.value ? Number(e.target.value) : '')} style={{ width: '100%' }} placeholder="Auto" />
-          </div>
-          <div className="form-row" style={{ flex: '1 1 100px' }}>
-            <label className="form-label">Materials (£)</label>
-            <input type="number" step="0.01" min="0" value={materialCost} onChange={e => setMaterialCost(e.target.value ? Number(e.target.value) : '')} style={{ width: '100%' }} placeholder="0.00" />
-          </div>
-          <div className="form-row" style={{ flex: '1 1 180px' }}>
-            <label className="form-label">Notes</label>
-            <input type="text" value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%' }} />
-          </div>
-          <div className="flex justify-end gap-2">
-            <button type="submit" className="button primary" disabled={isSubmitting}>
-              {isSubmitting ? '...' : 'Add Log'}
-            </button>
-          </div>
-        </form>
+      <form ref={formRef} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'row', gap: 'var(--space-md)', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 'var(--space-xl)' }}>
+        <div className="form-row" style={{ flex: '1 1 120px' }}>
+          <label className="form-label">Date *</label>
+          <input type="date" value={workDate} onChange={e => setWorkDate(e.target.value)} required style={{ width: '100%' }} />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 80px' }}>
+          <label className="form-label">Hours *</label>
+          <input type="number" step="0.5" min="0.5" max="24" value={hoursWorked} onChange={e => setHoursWorked(Number(e.target.value))} required style={{ width: '100%' }} />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 200px' }}>
+          <label className="form-label">Contractor *</label>
+          <CreatableSelect
+            isClearable
+            isDisabled={isSubmitting}
+            isLoading={isSubmitting}
+            onChange={(newValue: any) => {
+              setContractorId(newValue ? newValue.value : '');
+              if (newValue) {
+                const c = contractors.find(ct => ct.id === newValue.value);
+                setHourlyRate(c?.hourlyRate !== undefined && c?.hourlyRate !== null ? Number(c.hourlyRate) : '');
+              } else {
+                setHourlyRate('');
+              }
+            }}
+            onCreateOption={handleCreateContractor}
+            options={contractors.map(c => ({ label: c.name, value: c.id }))}
+            value={contractorId ? { label: contractors.find(c => c.id === contractorId)?.name || 'Unknown', value: contractorId } : null}
+            placeholder="Select or type to create..."
+            styles={getReactSelectStyles()}
+            {...reactSelectMenuProps}
+          />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 110px' }}>
+          <label className="form-label">Rate (£)</label>
+          <input type="number" step="0.01" min="0" max="10000" value={hourlyRate} onChange={e => setHourlyRate(e.target.value ? Number(e.target.value) : '')} style={{ width: '100%' }} placeholder="Auto" />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 100px' }}>
+          <label className="form-label">Materials (£)</label>
+          <input type="number" step="0.01" min="0" value={materialCost} onChange={e => setMaterialCost(e.target.value ? Number(e.target.value) : '')} style={{ width: '100%' }} placeholder="0.00" />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 200px' }}>
+          <label className="form-label">Notes</label>
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%' }} />
+        </div>
+        <div className="flex gap-2">
+          <button type="submit" className="button primary" disabled={isSubmitting}>
+            {isSubmitting ? '...' : 'Add Log'}
+          </button>
+        </div>
+      </form>
       )}
 
       {isLoading ? <p>Loading...</p> : (
         <>
-          {summary && (
-            <div className="flex justify-between items-center" style={{ marginBottom: 'var(--space-md)', padding: '0.6rem 0.85rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
-              <div className="flex gap-2" style={{ flexWrap: 'wrap', fontSize: '0.85rem' }}>
-                {summary.byContractor.map((c) => (
-                  <span key={c.contractorId} className="text-secondary">
-                    {c.name}: <strong>{Number(c.hours).toFixed(1)} hrs</strong>
-                  </span>
-                ))}
-              </div>
-              <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>
-                Job total: {Number(summary.totals.hours).toFixed(1)} hrs
-                {summary.totals.labourCost !== undefined && <> · £{Number(summary.totals.labourCost).toFixed(2)} labour</>}
-                {' '}· £{Number(summary.totals.materialCost).toFixed(2)} materials · {summary.totals.logCount} logs
-              </div>
-            </div>
-          )}
-
-          <div className="table-container" style={{ overflowX: 'auto', maxWidth: '100%' }}>
-            <table className="dense-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: '0.85rem' }}>
-              <thead>
-                <tr>
-                  <th className="px-3 py-2 text-left" style={{ width: '12%' }}>Contractor</th>
-                  <th className="px-3 py-2 text-left" style={{ width: '12%' }}>Logged By</th>
-                  <th className="px-3 py-2 text-right" style={{ width: '8%' }}>Hours</th>
-                  {canSeeRates && (
-                    <>
-                      <th className="px-3 py-2 text-right" style={{ width: '8%' }}>Rate (£)</th>
-                      <th className="px-3 py-2 text-right" style={{ width: '8%' }}>Labour (£)</th>
-                    </>
-                  )}
-                  <th className="px-3 py-2 text-right" style={{ width: '8%', marginRight: '4px' }}>Materials (£)</th>
-                  <th className="px-3 py-2 text-center" style={{ width: '12%', marginLeft: '4px' }}>Receipts</th>
-                  <th className="px-3 py-2 text-left" style={{ width: '20%' }}>Notes</th>
-                  <th className="px-3 py-2 text-right" style={{ width: '10%' }}>Actions</th>
-                </tr>
-              </thead>
-              {groupedLogs.map(([dateKey, group]) => (
-                <>
-                  <tbody key={dateKey}>
-                    <tr style={{ backgroundColor: 'var(--color-bg)' }}>
-                      <td colSpan={canSeeRates ? 9 : 7} style={{ padding: '0.5rem', borderTop: '2px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
-                        <div className="flex justify-between">
-                          <span className="text-secondary" style={{ fontSize: '0.9rem' }}>
-                            {new Date(dateKey).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                          </span>
-                          <span className="font-medium">
-                            Daily Totals: {group.totalHours.toFixed(1)} hrs
-                            {canSeeRates && <> | Labour £{group.totalCost.toFixed(2)}</>}
-                            {' '}| Materials £{group.totalMaterials.toFixed(2)}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                    {group.logs.map(log => (
-                      <tr key={log.id}>
-                        <td className="px-3 py-2 text-left" style={{ width: '12%' }}>{log.contractor?.name || 'Unknown'}</td>
-                        <td className="px-3 py-2 text-left" style={{ width: '12%' }}>{log.loggedBy?.name || 'Unknown'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-medium" style={{ width: '8%' }}>{Number(log.hoursWorked)}</td>
-                        {canSeeRates && (
-                          <td className="px-3 py-2 text-right tabular-nums text-secondary" style={{ width: '8%' }}>{log.rateApplied !== undefined ? `£${Number(log.rateApplied).toFixed(2)}` : ''}</td>
-                        )}
-                        {canSeeRates && (
-                          <td className="px-3 py-2 text-right tabular-nums font-medium text-primary" style={{ width: '8%' }}>{log.rateApplied !== undefined ? `£${(Number(log.hoursWorked) * Number(log.rateApplied)).toFixed(2)}` : ''}</td>
-                        )}
-                        <td className="px-3 py-2 text-right tabular-nums" style={{ width: '8%' }}>{`£${Number(log.materialCost || 0).toFixed(2)}`}</td>
-                        <td className="px-3 py-2 text-center" style={{ width: '12%' }}>
-                          <div className="flex" style={{ flexDirection: 'column', gap: '2px' }}>
-                            {(log.receipts || []).map(receipt => (
-                              <div key={receipt.id} className="flex items-center gap-2" style={{ fontSize: '0.8rem' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleReceiptDownload(receipt.id)}
-                                  title={`Download ${receipt.fileName}`}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary, #6d28d9)', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: 0 }}
-                                >
-                                  <Download size={12} />
-                                  <span style={{ maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{receipt.fileName}</span>
-                                </button>
-                                {can('worklogs:edit') && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleReceiptDelete(log.id, receipt.id)}
-                                    title="Delete receipt"
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', padding: 0 }}
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                )}
-                              </div>
-                                )
-                              )
-                            }
-                            {can('worklogs:edit') && (
-                              <label className="flex items-center gap-2" style={{ fontSize: '0.75rem', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
-                                <Paperclip size={12} />
-                                {uploadingReceiptFor === log.id ? 'Uploading…' : 'Attach'}
-                                <input
-                                  type="file"
-                                  accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-                                  style={{ display: 'none' }}
-                                  disabled={uploadingReceiptFor !== null}
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) handleReceiptUpload(log.id, file);
-                                    e.target.value = '';
-                                  }}
-                                />
-                              </label>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2" style={{ width: '20%', maxWidth: '20%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.notes || ''}>
-                          {log.notes}
-                        </td>
-                        <td className="px-3 py-2 text-right" style={{ width: '10%' }}>
-                          <div className="flex justify-end gap-2">
-                            {can('worklogs:create') && (
-                              <button type="button" className="button secondary small" onClick={() => handleDuplicate(log)} title="Duplicate this log">
-                                <Copy size={14} />
-                              </button>
-                            )}
-                            {can('worklogs:edit') && (
-                              <button type="button" className="button secondary small" onClick={() => setEditingLog(log)}>Edit</button>
-                            )}
-                            {can('worklogs:delete') && (
-                              <button type="button" className="button danger small" onClick={() => handleDelete(log.id)}>Delete</button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </>
+        {summary && (
+          <div className="flex justify-between items-center" style={{ marginBottom: 'var(--space-md)', padding: '0.6rem 0.85rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
+            <div className="flex gap-2" style={{ flexWrap: 'wrap', fontSize: '0.85rem' }}>
+              {summary.byContractor.map((c) => (
+                <span key={c.contractorId} className="text-secondary">
+                  {c.name}: <strong>{Number(c.hours).toFixed(1)} hrs</strong>
+                </span>
               ))}
-            </table>
+            </div>
+            <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>
+              Job total: {Number(summary.totals.hours).toFixed(1)} hrs
+              {summary.totals.labourCost !== undefined && <> · £{Number(summary.totals.labourCost).toFixed(2)} labour</>}
+              {' '}· £{Number(summary.totals.materialCost).toFixed(2)} materials · {summary.totals.logCount} logs
+            </div>
           </div>
+        )}
+
+        <table className="dense-table" style={{ fontSize: '0.85rem' }}>
+          <thead>
+            <tr>
+              <th>Contractor</th>
+              <th>Logged By</th>
+              <th>Hours</th>
+              {canSeeRates && <th>Rate (£)</th>}
+              {canSeeRates && <th>Labour (£)</th>}
+              <th>Materials (£)</th>
+              <th>Receipts</th>
+              <th>Notes</th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
+            </tr>
+          </thead>
+          {groupedLogs.map(([dateKey, group]) => (
+            <tbody key={dateKey}>
+              <tr style={{ backgroundColor: 'var(--color-bg)' }}>
+                <td colSpan={canSeeRates ? 9 : 7} style={{ padding: '0.5rem', borderTop: '2px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
+                  <div className="flex justify-between" style={{ fontWeight: 500 }}>
+                    <span className="text-secondary" style={{ fontSize: '0.9rem' }}>
+                      {new Date(dateKey).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    </span>
+                    <span className="font-medium">
+                      Daily Totals: {group.totalHours.toFixed(1)} hrs
+                      {canSeeRates && <> | Labour £{group.totalCost.toFixed(2)}</>}
+                      {' '}| Materials £{group.totalMaterials.toFixed(2)}
+                    </span>
+                  </div>
+                </td>
+              </tr>
+              {group.logs.map(log => (
+                <tr key={log.id}>
+                  <td>{log.contractor?.name || 'Unknown'}</td>
+                  <td className="text-secondary">{log.loggedBy?.name || 'Unknown'}</td>
+                  <td className="tabular-nums font-medium">{Number(log.hoursWorked)}</td>
+                  {canSeeRates && <td className="tabular-nums text-secondary">{log.rateApplied !== undefined ? `£${Number(log.rateApplied).toFixed(2)}` : ''}</td>}
+                  {canSeeRates && <td className="tabular-nums font-medium text-primary">{log.rateApplied !== undefined ? `£${(Number(log.hoursWorked) * Number(log.rateApplied)).toFixed(2)}` : ''}</td>}
+                  <td className="tabular-nums">£{Number(log.materialCost || 0).toFixed(2)}</td>
+                  <td>
+                    <div className="flex" style={{ flexDirection: 'column', gap: '2px' }}>
+                      {(log.receipts || []).map(receipt => (
+                        <div key={receipt.id} className="flex items-center gap-2" style={{ fontSize: '0.8rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleReceiptDownload(receipt.id)}
+                            title={`Download ${receipt.fileName}`}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary, #6d28d9)', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: 0 }}
+                          >
+                            <Download size={12} />
+                            <span style={{ maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{receipt.fileName}</span>
+                          </button>
+                          {can('worklogs:edit') && (
+                            <button
+                              type="button"
+                              onClick={() => handleReceiptDelete(log.id, receipt.id)}
+                              title="Delete receipt"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', padding: 0 }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {can('worklogs:edit') && (
+                        <label className="flex items-center gap-2" style={{ fontSize: '0.75rem', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                          <Paperclip size={12} />
+                          {uploadingReceiptFor === log.id ? 'Uploading…' : 'Attach'}
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
+                            style={{ display: 'none' }}
+                            disabled={uploadingReceiptFor !== null}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleReceiptUpload(log.id, file);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </td>
+                  <td style={{ maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={log.notes || ''}>
+                    {log.notes}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <div className="flex justify-end gap-2">
+                      {can('worklogs:create') && (
+                        <button type="button" className="button secondary small" onClick={() => handleDuplicate(log)} title="Duplicate this log">
+                          <Copy size={14} />
+                        </button>
+                      )}
+                      {can('worklogs:edit') && (
+                        <button type="button" className="button secondary small" onClick={() => setEditingLog(log)}>Edit</button>
+                      )}
+                      {can('worklogs:delete') && (
+                        <button type="button" className="button danger small" onClick={() => handleDelete(log.id)}>Delete</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          ))}
+          {groupedLogs.length === 0 && (
+            <tbody>
+              <tr>
+                <td colSpan={canSeeRates ? 9 : 7} className="empty-state">No labor recorded.</td>
+              </tr>
+            </tbody>
+          )}
+        </table>
+
+        {meta && (
+          <div className="flex justify-between items-center" style={{ marginTop: 'var(--space-sm)', fontSize: '0.8rem' }}>
+            <span className="text-secondary">Showing {workLogs.length} of {meta.total} logs</span>
+            {workLogs.length < meta.total && (
+              <button type="button" className="button secondary small" onClick={handleLoadMore} disabled={isLoadingMore}>
+                {isLoadingMore ? 'Loading...' : 'Load more'}
+              </button>
+            )}
+          </div>
+        )}
         </>
       )}
+
+      {editingLog && (
+        <WorkLogEditModal
+          log={editingLog}
+          onClose={() => setEditingLog(null)}
+          onSaved={handleSaved}
+        />
+      )}
     </div>
-    );
+  );
 }

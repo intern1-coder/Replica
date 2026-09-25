@@ -19,6 +19,7 @@
     "prisma:studio": "prisma studio",
     "bootstrap:users": "tsx scripts/bootstrap-users.ts",
     "seed:dummy": "tsx scripts/seed-dummy-data.ts",
+    "seed:pagination": "tsx scripts/seed-pagination-data.ts",
     "reset:test-data": "tsx scripts/reset-test-data.ts"
   },
   "jest": {

@@ -945,6 +945,115 @@
   margin-top: var(--space-xl);
 }
 
+.data-table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+}
+
+.data-table-pagination__left,
+.data-table-pagination__right,
+.data-table-pagination__numbers {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.data-table-pagination__left {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.data-table-pagination__rows-per-page {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}
+
+.data-table-pagination__rows-per-page select {
+  min-width: 4.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.data-table-pagination__summary {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.data-table-pagination__nav,
+.data-table-pagination__page {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 600;
+}
+
+.data-table-pagination__nav:hover:not(:disabled),
+.data-table-pagination__page:hover:not(:disabled) {
+  background-color: var(--color-surface);
+  border-color: var(--color-border-strong, var(--color-border));
+}
+
+.data-table-pagination__nav:disabled,
+.data-table-pagination__page:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.data-table-pagination__page.is-active {
+  background-color: var(--color-brand);
+  border-color: var(--color-brand);
+  color: white;
+  box-shadow: 0 0 0 1px rgba(24, 24, 27, 0.02);
+}
+
+.data-table-pagination__nav {
+  padding: 0 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .data-table-pagination {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .data-table-pagination__right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .data-table-pagination__numbers {
+    display: none;
+  }
+
+  .data-table-pagination__summary {
+    white-space: normal;
+  }
+}
+
 /* UI Elements */
 .segment-control {
   display: inline-flex;
@@ -1577,6 +1686,17 @@
 
 .table-scroll table {
   min-width: 640px;
+}
+
+.engineers-table {
+  min-width: 900px;
+}
+
+.engineers-table th,
+.engineers-table td,
+.engineers-table td > span,
+.engineers-table .button {
+  white-space: nowrap;
 }
 
 /* Two-column info/form grid that stacks on mobile */

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../utils/api';
-import { FileText, Lock, Edit, X, Copy } from 'lucide-react';
+import { FileText, Lock, Edit, X, Copy, Mail } from 'lucide-react';
 import { DocumentEditModal } from './DocumentEditModal';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -44,6 +44,9 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = useState('Report Preview');
   const [error, setError] = useState('');
 
   const [editingDoc, setEditingDoc] = useState<GeneratedDocument | null>(null);
@@ -237,6 +240,13 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
 
   const handleDocAction = async (id: string, action: 'preview' | 'download') => {
     try {
+      if (action === 'preview') {
+        const response = await apiFetch(`/documents/${id}/html`);
+        setPreviewHtml(response.html);
+        setPreviewTitle(docs.find((doc) => doc.id === id)?.type.replace(/_/g, ' ') || 'Report Preview');
+        return;
+      }
+
       const response = await apiFetch(`/documents/${id}/url?download=${action === 'download'}`);
       if (action === 'download') {
         const a = document.createElement('a');
@@ -273,6 +283,24 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
       showToast('Failed to copy report for email', 'error');
     } finally {
       setCopyingId(null);
+    }
+  };
+
+  const handleSendEmail = async (id: string) => {
+    const toEmail = window.prompt('Internal recipient email address:');
+    if (!toEmail?.trim()) return;
+
+    setSendingId(id);
+    try {
+      await apiFetch(`/documents/${id}/email`, {
+        method: 'POST',
+        body: JSON.stringify({ toEmail: toEmail.trim() }),
+      });
+      showToast('Report email sent with the clean PDF attached', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to send report email', 'error');
+    } finally {
+      setSendingId(null);
     }
   };
 
@@ -386,6 +414,15 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
                     >
                       <Copy size={12} /> {copyingId === doc.id ? 'Copying...' : 'Copy for Email'}
                     </button>
+                    {doc.type === 'QUOTE' && (
+                      <button
+                        onClick={() => handleSendEmail(doc.id)}
+                        disabled={sendingId === doc.id}
+                        className="button secondary small flex items-center gap-2"
+                      >
+                        <Mail size={12} /> {sendingId === doc.id ? 'Sending...' : 'Email Internal'}
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -410,6 +447,25 @@ export function JobDocuments({ jobId, jobStatus, scheduledDate, assignedContract
             loadDocs();
           }}
         />
+      )}
+
+      {previewHtml && (
+        <div className="modal-backdrop entering" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-panel entering section-card" style={{ width: '900px', maxWidth: '95vw', height: '90vh', maxHeight: '900px', padding: 0, display: 'flex', flexDirection: 'column' }}>
+            <div className="flex justify-between items-center" style={{ padding: 'var(--space-md)', borderBottom: '1px solid var(--color-border)' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>{previewTitle} Preview</h3>
+              <button onClick={() => setPreviewHtml(null)} aria-label="Close report preview" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <iframe
+              title={previewTitle}
+              srcDoc={previewHtml}
+              sandbox=""
+              style={{ flex: 1, width: '100%', border: 0, background: '#fff' }}
+            />
+          </div>
+        </div>
       )}
 
       {showJobSheetDialog && (

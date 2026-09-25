@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
-import { Search, Plus, Home, MapPin, User, Building2, CornerDownRight, Edit } from 'lucide-react';
+import { Search, Plus, Home, MapPin, User, Building2, CornerDownRight, Edit, X, Save } from 'lucide-react';
 import { SearchableAutocomplete } from '../components/SearchableAutocomplete';
+import { DataTablePagination } from '../components/DataTablePagination';
 import type { Client } from './ClientList';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { useToast } from '../contexts/ToastContext';
 
 export interface Property {
@@ -27,9 +29,17 @@ export function PropertyList() {
   const { showToast } = useToast();
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const currentPage = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
+  const pageSize = [10, 25, 50].includes(Number(searchParams.get('limit') ?? '10'))
+    ? Number(searchParams.get('limit') ?? '10')
+    : 10;
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [address, setAddress] = useState('');
@@ -63,12 +73,35 @@ export function PropertyList() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentPage, pageSize, searchQuery]);
+
+  const syncUrlPagination = useCallback((nextPage: number, nextSize: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('page', String(nextPage));
+    params.set('limit', String(nextSize));
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const hasPage = searchParams.has('page');
+    const hasLimit = searchParams.has('limit');
+
+    if (!hasPage || !hasLimit) {
+      const params = new URLSearchParams(searchParams.toString());
+      if (!hasPage) params.set('page', '1');
+      if (!hasLimit) params.set('limit', '10');
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const loadData = async () => {
     try {
-      const propRes = await apiFetch('/properties');
+      const params = new URLSearchParams({ page: String(currentPage), limit: String(pageSize) });
+      if (searchQuery.trim()) params.set('q', searchQuery.trim());
+      const propRes = await apiFetch(`/properties?${params.toString()}`);
       setProperties(propRes.data || []);
+      setTotalItems(propRes.meta?.total ?? 0);
+      setTotalPages(propRes.meta?.totalPages ?? 1);
     } catch (err: any) {
       setError('Failed to load data: ' + err.message);
     } finally {
@@ -88,12 +121,10 @@ export function PropertyList() {
 
   const openCreate = () => {
     resetForm();
-    setIsFormOpen(true);
+    setShowForm(true);
   };
 
   const openEdit = async (p: Property) => {
-    setIsFormOpen(false);
-    setEditingId(p.id);
     setError('');
     try {
       const full = await apiFetch(`/properties/${p.id}`);
@@ -103,6 +134,8 @@ export function PropertyList() {
       setKeyLocation(full.keyLocation || '');
       setSelectedClient(full.currentClient ? { id: full.currentClient.id, name: full.currentClient.name } as Client : null);
       setSelectedParent(full.parent ? { id: full.parent.id, address: full.parent.address } as Property : null);
+      setEditingId(p.id);
+      setShowForm(true);
     } catch (err: any) {
       setError('Failed to load property: ' + err.message);
       setEditingId(null);
@@ -121,11 +154,11 @@ export function PropertyList() {
           postcode: postcode.trim() || null,
           currentClientId: selectedClient ? selectedClient.id : null,
           parentId: selectedParent ? selectedParent.id : null
-        }),
+        })
       });
       setProperties([newProperty, ...properties]);
       resetForm();
-      setIsFormOpen(false);
+      setShowForm(false);
       showToast('Property created', 'success');
     } catch (err: any) {
       setError(err.message || 'Validation failed.');
@@ -149,10 +182,11 @@ export function PropertyList() {
           keyLocation: keyLocation.trim() || null,
           currentClientId: selectedClient ? selectedClient.id : null,
           parentId: selectedParent ? selectedParent.id : null,
-        }),
+        })
       });
       setProperties(properties.map((p) => (p.id === editingId ? { ...p, ...updated } : p)));
       resetForm();
+      setShowForm(false);
       showToast('Property updated', 'success');
     } catch (err: any) {
       setError(err.message || 'Validation failed.');
@@ -178,242 +212,256 @@ export function PropertyList() {
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-      <div className="page-header">
-        <div className="page-header-title">
-          <h1 className="flex items-center gap-3">
-            <Home size={28} className="text-brand" style={{ color: 'var(--color-brand)' }} />
-            Properties
-          </h1>
-          <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>Manage your portfolio and tenant assignments.</p>
-        </div>
-      </div>
-
-      <div className="filter-bar">
-          <div className="search-input-wrapper">
-            <Search size={18} />
-            <input
-              type="text"
-              placeholder="Search address or tenant..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+        <div className="page-header">
+          <div className="page-header-title">
+            <h1 className="flex items-center gap-3">
+              <Home size={28} className="text-brand" style={{ color: 'var(--color-brand)' }} />
+              Properties
+            </h1>
+            <p className="text-secondary" style={{ fontSize: '1.0625rem' }}>Manage your portfolio and tenant assignments.</p>
           </div>
+        </div>
 
-          <motion.button
-            className="button primary"
-            onClick={() => {
-              if (isFormOpen || editingId) {
-                resetForm();
-                setIsFormOpen(false);
-              } else {
-                openCreate();
-              }
-            }}
-            whileTap={{ scale: 0.97 }}
-            transition={{ type: "spring", duration: 0.4, bounce: 0.2 }}
-          >
-            <Plus size={18} /> {isFormOpen || editingId ? 'Cancel' : 'Add Property'}
-          </motion.button>
-      </div>
-
-      {error && <div className="page-error">{error}</div>}
-
-      <AnimatePresence>
-        {(isFormOpen || editingId) && (
-          <motion.div
-            initial={{ opacity: 0, height: 0, overflow: 'hidden' }}
-            animate={{ opacity: 1, height: 'auto', overflow: 'visible' }}
-            exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
-            transition={{ type: "spring", duration: 0.5, bounce: 0 }}
-            className="section-card"
-          >
-            <div className="section-card-header">
-              <h3 style={{ fontSize: '1.125rem' }}>{editingId ? 'Edit Property' : 'Create New Property'}</h3>
+        <div className="filter-bar">
+            <div className="search-input-wrapper">
+              <Search size={18} />
+              <input
+                type="text"
+                placeholder="Search address or tenant..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  syncUrlPagination(1, pageSize);
+                }}
+                className="search-input"
+              />
             </div>
-            <form onSubmit={editingId ? handleUpdate : handleCreate} className="form-section">
-              <div className="detail-grid">
-                <div className="form-row">
-                  <label className="form-label">Full Address *</label>
-                  <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St, London..." required />
-                </div>
 
-                <div className="form-row">
-                  <label className="form-label">Postcode</label>
-                  <input type="text" value={postcode} onChange={e => setPostcode(e.target.value)} placeholder="SW1A 1AA" />
-                </div>
+            <motion.button
+              className="button primary"
+              onClick={() => {
+                if (showForm) {
+                  resetForm();
+                  setShowForm(false);
+                } else {
+                  openCreate();
+                }
+              }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ type: "spring", duration: 0.4, bounce: 0.2 }}
+            >
+              <Plus size={18} /> {showForm ? 'Cancel' : 'Add Property'}
+            </motion.button>
+        </div>
 
-                <div className="form-row">
-                  <label className="form-label">Assigned Client (Optional)</label>
-                  <SearchableAutocomplete
-                    endpoint="/clients"
-                    placeholder="Search clients..."
-                    labelKey={clientLabelKey}
-                    subLabelKey={clientSubLabelKey}
-                    selectedItem={selectedClient}
-                    onSelect={setSelectedClient}
-                  />
-                </div>
+        {error && <div className="page-error">{error}</div>}
 
-                <div className="form-row">
-                  <label className="form-label">Parent Property (Optional - for HMOs/Flats)</label>
-                  <SearchableAutocomplete
-                    endpoint="/properties"
-                    placeholder="Search parent building..."
-                    labelKey={propertyLabelKey}
-                    subLabelKey={propertySubLabelKey}
-                    selectedItem={selectedParent}
-                    onSelect={setSelectedParent}
-                  />
-                </div>
-
-                <div className="form-row">
-                  <label className="form-label">Access Notes</label>
-                  <textarea value={accessNotes} onChange={e => setAccessNotes(e.target.value)} rows={2} placeholder="Gate codes, entry instructions..." />
-                </div>
-
-                <div className="form-row">
-                  <label className="form-label">Key Location</label>
-                  <input type="text" value={keyLocation} onChange={e => setKeyLocation(e.target.value)} placeholder="E.g. Under mat, lockbox code 1234" />
-                </div>
-              </div>
-
-              <div className="form-actions">
-                <motion.button
-                  type="submit"
-                  className="button primary"
-                  disabled={isSubmitting}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  {isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Save Property'}
-                </motion.button>
-              </div>
-            </form>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {isLoading ? (
-        <div className="text-secondary" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading properties...</div>
-      ) : (
-        <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table className="min-w-full divide-y divide-border">
-            <thead>
-              <tr>
-                <th className="w-[30%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
-                  Address
-                </th>
-                <th className="w-[25%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
-                  Current Tenants
-                </th>
-                <th className="w-[33%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
-                  Assigned Client
-                </th>
-                <th className="w-[12%] px-4 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filteredProperties.length > 0 ? (
-                filteredProperties.map((p) => (
-                  <motion.tr
-                    key={p.id}
-                    variants={listItem}
-                    className="cursor-pointer hover:bg-gray-50/80 dark:hover:bg-zinc-900/50 transition-colors"
-                  >
-                    <td className="w-[30%] px-4 py-4 whitespace-nowrap align-middle">
-                      <div className="flex items-start gap-3">
-                        <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
-                          <MapPin size={16} className="text-secondary" />
-                        </div>
-                        <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
-                          <div className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                            {p.address}
-                            {p.postcode && !p.address.toLowerCase().trimEnd().endsWith(p.postcode.trim().toLowerCase()) && (
-                              <span className="text-secondary" style={{ fontWeight: 400 }}>, {p.postcode}</span>
+        {isLoading ? (
+          <div className="text-secondary" style={{ padding: 'var(--space-xl)', textAlign: 'center' }}>Loading properties...</div>
+        ) : (
+          <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
+            <table className="min-w-full divide-y divide-border">
+              <thead>
+                <tr>
+                  <th className="w-[30%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Address
+                  </th>
+                  <th className="w-[25%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Current Tenants
+                  </th>
+                  <th className="w-[33%] px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Assigned Client
+                  </th>
+                  <th className="w-[12%] px-4 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider whitespace-nowrap align-middle">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filteredProperties.length > 0 ? (
+                  filteredProperties.map((p) => (
+                    <motion.tr
+                      key={p.id}
+                      variants={listItem}
+                      className="cursor-pointer hover:bg-gray-50/80 dark:hover:bg-zinc-900/50 transition-colors"
+                    >
+                      <td className="w-[30%] px-4 py-4 whitespace-nowrap align-middle">
+                        <div className="flex items-start gap-3">
+                          <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+                            <MapPin size={16} className="text-secondary" />
+                          </div>
+                          <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
+                            <div className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                              {p.address}
+                              {p.postcode && !p.address.toLowerCase().trimEnd().endsWith(p.postcode.trim().toLowerCase()) && (
+                                <span className="text-secondary" style={{ fontWeight: 400 }}>, {p.postcode}</span>
+                              )}
+                            </div>
+                            {p.parent && (
+                              <div className="text-secondary flex items-center gap-1" style={{ fontSize: '0.875rem' }}>
+                                <CornerDownRight size={14} className="text-muted" /> Part of: {p.parent.address}
+                              </div>
+                            )}
+                            {p.subUnits && p.subUnits.length > 0 && (
+                              <div style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+                                <span style={{ fontWeight: 500, color: 'var(--color-brand)' }}>{p.subUnits.length} sub-units</span>
+                              </div>
                             )}
                           </div>
-                          {p.parent && (
-                            <div className="text-secondary flex items-center gap-1" style={{ fontSize: '0.875rem' }}>
-                              <CornerDownRight size={14} className="text-muted" /> Part of: {p.parent.address}
-                            </div>
-                          )}
-                          {p.subUnits && p.subUnits.length > 0 && (
-                            <div style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                              <span style={{ fontWeight: 500, color: 'var(--color-brand)' }}>{p.subUnits.length} sub-units</span>
-                            </div>
+                        </div>
+                      </td>
+                      <td className="w-[25%] px-4 py-4 whitespace-nowrap align-middle">
+                        <div className="flex" style={{ flexDirection: 'column', gap: '0.35rem' }}>
+                          {p.lastTenants && p.lastTenants.length > 0 ? (
+                            p.lastTenants.map(t => (
+                              <div key={t.id} className="flex items-center gap-2" style={{ fontSize: '0.9375rem' }}>
+                                <User size={14} className="text-muted" />
+                                <span style={{ color: 'var(--color-text-primary)' }}>
+                                  {t.name}
+                                  {t.phone && <span className="text-muted" style={{ fontSize: '0.85rem', marginLeft: '0.5rem' }}>{t.phone}</span>}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-muted" style={{ fontSize: '0.875rem' }}>No tenants assigned</span>
                           )}
                         </div>
-                      </div>
-                    </td>
-                    <td className="w-[25%] px-4 py-4 whitespace-nowrap align-middle">
-                      <div className="flex" style={{ flexDirection: 'column', gap: '0.35rem' }}>
-                        {p.lastTenants && p.lastTenants.length > 0 ? (
-                          p.lastTenants.map(t => (
-                            <div key={t.id} className="flex items-center gap-2" style={{ fontSize: '0.9375rem' }}>
-                              <User size={14} className="text-muted" />
-                              <span style={{ color: 'var(--color-text-primary)' }}>
-                                {t.name}
-                                {t.phone && <span className="text-muted" style={{ fontSize: '0.85rem', marginLeft: '0.5rem' }}>{t.phone}</span>}
-                              </span>
+                      </td>
+                      <td className="w-[33%] px-4 py-4 whitespace-nowrap align-middle">
+                          {p.currentClient ? (
+                            <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
+                              <div className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
+                                <Building2 size={14} className="text-muted" /> {p.currentClient.name}
+                              </div>
+                              {(p.currentClient.phone || p.currentClient.email) && (
+                                <div className="text-muted" style={{ fontSize: '0.85rem', marginLeft: '1.35rem' }}>
+                                  {[p.currentClient.phone, p.currentClient.email].filter(Boolean).join(' | ')}
+                                </div>
+                              )}
                             </div>
-                          ))
-                        ) : (
-                          <span className="text-muted" style={{ fontSize: '0.875rem' }}>No tenants assigned</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="w-[33%] px-4 py-4 whitespace-nowrap align-middle">
-                      {p.currentClient ? (
-                        <div className="flex" style={{ flexDirection: 'column', gap: '0.25rem' }}>
-                          <div className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)', fontSize: '0.9375rem' }}>
-                            <Building2 size={14} className="text-muted" /> {p.currentClient.name}
-                          </div>
-                          {(p.currentClient.phone || p.currentClient.email) && (
-                            <div className="text-muted" style={{ fontSize: '0.85rem', marginLeft: '1.35rem' }}>
-                              {[p.currentClient.phone, p.currentClient.email].filter(Boolean).join(' | ')}
-                            </div>
+                          ) : (
+                            <span className="text-muted" style={{ fontSize: '0.875rem', fontStyle: 'italic' }}>Unassigned</span>
                           )}
+                        </td>
+                      <td className="w-[12%] px-4 py-4 whitespace-nowrap align-middle text-right">
+                        <div className="list-cell-action">
+                          <motion.button
+                            className="button secondary small flex items-center gap-2"
+                            onClick={() => openEdit(p)}
+                            whileTap={{ scale: 0.95 }}
+                            style={{ display: 'inline-flex' }}
+                          >
+                            <Edit size={14} /> Edit
+                          </motion.button>
                         </div>
-                      ) : (
-                        <span className="text-muted" style={{ fontSize: '0.875rem', fontStyle: 'italic' }}>Unassigned</span>
-                      )}
-                    </td>
-                    <td className="w-[12%] px-4 py-4 whitespace-nowrap align-middle text-right">
-                      <div className="list-cell-action">
-                        <motion.button
-                          className="button secondary small flex items-center gap-2"
-                          onClick={() => openEdit(p)}
-                          whileTap={{ scale: 0.95 }}
-                          style={{ display: 'inline-flex' }}
-                        >
-                          <Edit size={14} /> Edit
-                        </motion.button>
+                      </td>
+                    </motion.tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-10 text-center text-secondary">
+                      <div className="empty-state">
+                        <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg)', borderRadius: '50%', marginBottom: 'var(--space-md)' }}>
+                          <Home size={32} className="text-muted" />
+                        </div>
+                        <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No properties found</p>
+                        <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
+                          {searchQuery ? "Try adjusting your search query." : "Add a property to get started."}
+                        </p>
                       </div>
                     </td>
-                  </motion.tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-secondary">
-                    <div className="empty-state">
-                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg)', borderRadius: '50%', marginBottom: 'var(--space-md)' }}>
-                        <Home size={32} className="text-muted" />
-                      </div>
-                      <p className="font-medium text-primary" style={{ fontSize: '1.125rem', margin: '0 0 var(--space-xs) 0' }}>No properties found</p>
-                      <p className="text-secondary" style={{ margin: 0, fontSize: '0.9375rem' }}>
-                        {searchQuery ? "Try adjusting your search query." : "Add a property to get started."}
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              pageSize={pageSize}
+              onPageChange={(page) => syncUrlPagination(page, pageSize)}
+              onPageSizeChange={(size) => syncUrlPagination(1, size)}
+            />
+          </div>
+        )}
+      </motion.div>
+
+      {showForm && (
+        <div className="modal-backdrop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-panel entering section-card w-full max-w-2xl rounded-2xl shadow-xl bg-white max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center" style={{ padding: 'var(--space-md)', borderBottom: '1px solid var(--color-border)' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{editingId ? 'Edit Property' : 'Create New Property'}</h2>
+              <button onClick={() => { setShowForm(false); resetForm(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div style={{ padding: 'var(--space-md)', display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+              {error && <div className="page-error">{error}</div>}
+              <form onSubmit={editingId ? handleUpdate : handleCreate} className="form-section">
+                <div className="detail-grid">
+                  <div className="form-row">
+                    <label className="form-label">Full Address *</label>
+                    <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St, London..." required />
+                  </div>
+
+                  <div className="form-row">
+                    <label className="form-label">Postcode</label>
+                    <input type="text" value={postcode} onChange={e => setPostcode(e.target.value)} placeholder="SW1A 1AA" />
+                  </div>
+
+                  <div className="form-row">
+                    <label className="form-label">Assigned Client (Optional)</label>
+                    <SearchableAutocomplete
+                      endpoint="/clients"
+                      placeholder="Search clients..."
+                      labelKey={clientLabelKey}
+                      subLabelKey={clientSubLabelKey}
+                      selectedItem={selectedClient}
+                      onSelect={setSelectedClient}
+                    />
+                  </div>
+
+                  <div className="form-row">
+                    <label className="form-label">Parent Property (Optional - for HMOs/Flats)</label>
+                    <SearchableAutocomplete
+                      endpoint="/properties"
+                      placeholder="Search parent building..."
+                      labelKey={propertyLabelKey}
+                      subLabelKey={propertySubLabelKey}
+                      selectedItem={selectedParent}
+                      onSelect={setSelectedParent}
+                    />
+                  </div>
+
+                  <div className="form-row">
+                    <label className="form-label">Access Notes</label>
+                    <textarea value={accessNotes} onChange={e => setAccessNotes(e.target.value)} rows={2} placeholder="Gate codes, entry instructions..." />
+                  </div>
+
+                  <div className="form-row">
+                    <label className="form-label">Key Location</label>
+                    <input type="text" value={keyLocation} onChange={e => setKeyLocation(e.target.value)} placeholder="E.g. Under mat, lockbox code 1234" />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2" style={{ paddingTop: 'var(--space-md)' }}>
+                  <button type="button" onClick={() => { setShowForm(false); resetForm(); }} className="button secondary" disabled={isSubmitting}>Cancel</button>
+                  <button
+                    type="submit"
+                    className="button primary flex items-center gap-2"
+                    disabled={isSubmitting}
+                  >
+                    <Save size={16} />
+                    {isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Save Property'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
       )}
-    </motion.div>
+    </>
   );
 }

@@ -274,6 +274,26 @@ export async function sendBackupFailureAlert(errorMessage: string): Promise<void
   logger.warn('Backup failure alert email sent', { maskedTo: maskEmail(alertEmail) });
 }
 
+export async function sendReportEmail(options: {
+  toEmail: string;
+  toName?: string;
+  subject: string;
+  html: string;
+  attachment: { filename: string; content: Buffer; contentType: string };
+}): Promise<void> {
+  const from = `"${config.email.fromName}" <${config.email.from}>`;
+  const info = await getTransporter().sendMail({
+    from,
+    to: options.toName ? `"${options.toName}" <${options.toEmail}>` : options.toEmail,
+    subject: options.subject,
+    text: options.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    html: options.html,
+    attachments: [options.attachment],
+  });
+
+  logger.info('Report email sent', { maskedTo: maskEmail(options.toEmail), messageId: info.messageId });
+}
+
 // ── Diagnostics ────────────────────────────────────────────────────────────────
 
 /**
