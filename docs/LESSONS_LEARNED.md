@@ -234,7 +234,7 @@ Local dev uses placeholder OCI credentials, so uploads went to disk (`uploads/`)
 **Correct production bootstrap output:**
 
 ```
-✓ Super Admin: it@vlookup.co.in (SUPER_ADMIN)
+✓ Super Admin: admin@example.local (SUPER_ADMIN)
 ✓ Client Admin: fahd@affinityproperty.co.uk (ADMIN)
 Bootstrap complete.
 ```

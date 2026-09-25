@@ -13,7 +13,7 @@
 | --- | --- |
 | App URL | http://localhost:5173 |
 | API | http://localhost:3000/api |
-| Super Admin | `it@vlookup.co.in` / `SuperAdmin@123` |
+| Super Admin | `admin@example.local` / `DummyAdmin@123` |
 | Client Admin | `fahd@affinityproperty.co.uk` / `ClientAdmin@123` |
 | PM (demo) | `pm@affinityproperty.co.uk` / `DemoUser@123` |
 | Contractor (demo) | `contractor@affinityproperty.co.uk` / `DemoUser@123` |
